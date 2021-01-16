@@ -31,6 +31,8 @@
 #include <CGAL/Arr_segment_traits_2.h>
 #include <CGAL/Arrangement_2.h>
 #include <CGAL/Polygon_2.h>
+#include <CGAL/Polygon_with_holes_2.h>
+#include <CGAL/Polygon_triangulation_decomposition_2.h>
 
 // @todo decide on Kernel
 typedef CGAL::Quotient<CGAL::MP_Float> Number_type;
@@ -40,6 +42,8 @@ typedef Traits_2::Point_2 Point_2;
 typedef Traits_2::X_monotone_curve_2 Segment_2;
 typedef CGAL::Arrangement_2<Traits_2> Arrangement_2;
 typedef CGAL::Polygon_2<Kernel> Polygon_2;
+typedef CGAL::Polygon_with_holes_2<Kernel> Polygon_wh_2;
+typedef typename Arrangement_2::Inner_ccb_const_iterator Inner_ccb_const_iterator;
 
 using namespace svgpp;
 
@@ -192,6 +196,55 @@ namespace {
 		} while (++curr != circ);
 		return poly;
 	}
+
+	CGAL::Triangle_2<Kernel> poly_to_triangle(const Polygon_2& poly)
+	{
+		auto n = std::distance(poly.vertices_begin(), poly.vertices_end());
+		if (n != 3) {
+			throw std::runtime_error("Unexpected number of points in polygon");
+		}
+		auto p = *poly.vertices_begin();
+		auto q = *next(poly.vertices_begin(),1);
+		auto r = *next(poly.vertices_begin(),2);
+		return CGAL::Triangle_2<Kernel>(p, q, r);
+	}
+
+	Polygon_wh_2 circ_to_poly(Arrangement_2::Ccb_halfedge_const_circulator circ, Inner_ccb_const_iterator a, Inner_ccb_const_iterator b)
+	{
+		Polygon_wh_2 poly(circ_to_poly(circ));
+		for (auto it = a; it != b; ++it) {
+			poly.add_hole(circ_to_poly(*it));
+		}
+		return poly;
+	}
+
+	svgfill::point_2 create_point(const Point_2& pt)
+	{
+		return svgfill::point_2{
+			CGAL::to_double(pt.cartesian(0)),
+			CGAL::to_double(pt.cartesian(1)),
+		};
+	}
+
+	void set_point_inside(const Polygon_wh_2& inpoly, svgfill::polygon_2& outpoly)
+	{
+		// create Delaunay triangulation and return the centroid of the largest triangle.
+		CGAL::Polygon_triangulation_decomposition_2<Kernel> decompositor;
+		std::list<Polygon_2> decom_polies;
+		decompositor(inpoly, std::back_inserter(decom_polies));
+		decom_polies.sort([](const Polygon_2& a, const Polygon_2& b) {
+			return a.area() > b.area();
+		});
+		const Polygon_2& largest = decom_polies.front();
+		auto triangle = poly_to_triangle(largest);
+		/*
+		for (auto& p : decom_polies) {
+			std::cout << "a " << CGAL::to_double(poly_to_triangle(largest).area()) << std::endl;
+		}
+		std::cout << "triangle area " << CGAL::to_double(triangle.area()) << std::endl;
+		*/
+		outpoly.point_inside = create_point(CGAL::centroid(triangle));
+	}
 }
 
 bool svgfill::line_segments_to_polygons(const std::vector<std::vector<line_segment_2>>& segments, std::vector<std::vector<polygon_2>>& polygons)
@@ -212,34 +265,46 @@ bool svgfill::line_segments_to_polygons(const std::vector<std::vector<line_segme
 			CGAL::insert(arr, seg);
 		}
 
-		std::vector<CGAL::Polygon_2<Kernel>> ps;
+		std::vector<Polygon_wh_2> ps;
 		ps.reserve(std::distance(arr.faces_begin(), arr.faces_end()));
 
 		for (auto it = arr.faces_begin(); it != arr.faces_end(); ++it) {
 			const auto& f = *it;
-			if (!f.is_unbounded()) {
-				ps.push_back(circ_to_poly(f.outer_ccb()));
+			if (!f.is_unbounded()) {				
+				ps.push_back(circ_to_poly(
+					f.outer_ccb(),
+					f.inner_ccbs_begin(),
+					f.inner_ccbs_end()
+				));
 			}
 		}
 
-		// Sort polygons to have inner loops drawn over outer boundaries.
-		std::sort(ps.begin(), ps.end(), [](const Polygon_2& a, const Polygon_2& b) {
-			return a.area() > b.area();
+		// Sort polygons (only taking into account outer boundary) to have inner
+		// loops drawn over outer boundaries. In SVG draw order is defined by
+		// position in the tree.
+		// @nb we do now add the inner boundaries to the path as well.
+		std::sort(ps.begin(), ps.end(), [](const Polygon_wh_2& a, const Polygon_wh_2& b) {
+			return a.outer_boundary().area() > b.outer_boundary().area();
 		});
 
 		polygons.emplace_back();
 		polygons.back().reserve(ps.size());
 
-		std::transform(ps.begin(), ps.end(), std::back_inserter(polygons.back()), [](const Polygon_2& p) {
+		std::transform(ps.begin(), ps.end(), std::back_inserter(polygons.back()), [](const Polygon_wh_2& p) {
 			svgfill::polygon_2 p2;
-			std::transform(p.vertices_begin(), p.vertices_end(), std::back_inserter(p2), [](const Point_2& pt) {
-				return svgfill::point_2{
-					CGAL::to_double(pt.cartesian(0)),
-					CGAL::to_double(pt.cartesian(1)),
-				};
+			std::transform(p.outer_boundary().vertices_begin(), p.outer_boundary().vertices_end(), std::back_inserter(p2.boundary), [](const Point_2& pt) {
+				return create_point(pt);
 			});
+			std::transform(p.holes_begin(), p.holes_end(), std::back_inserter(p2.inner_boundaries), [](const Polygon_2& poly) {
+				svgfill::loop_2 lp;
+				std::transform(poly.vertices_begin(), poly.vertices_end(), std::back_inserter(lp), [](const Point_2& pt) {
+					return create_point(pt);
+				});
+				return lp;
+			});
+			set_point_inside(p, p2);
 			return p2;
-		});		
+		});
 	}
 
 	return true;

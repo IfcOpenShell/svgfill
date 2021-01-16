@@ -29,7 +29,12 @@
 namespace svgfill {
 	typedef std::array<double, 2> point_2;
 	typedef std::array<point_2, 2> line_segment_2;
-	typedef std::vector<point_2> polygon_2;
+	typedef std::vector<point_2> loop_2;
+	struct polygon_2 {
+		loop_2 boundary;
+		std::vector<loop_2> inner_boundaries;
+		point_2 point_inside;
+	};
 
 	bool svg_to_line_segments(const std::string& filename, const boost::optional<std::string>& class_name, std::vector<std::vector<line_segment_2>>& segments);
 	bool line_segments_to_polygons(const std::vector<std::vector<line_segment_2>>& segments, std::vector<std::vector<polygon_2>>& polygons);
