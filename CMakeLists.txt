@@ -1,4 +1,8 @@
 cmake_minimum_required (VERSION 2.8.11)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 project (svgfill)
 
 set(CGAL_LIBRARY_NAMES libCGAL_Core libCGAL_ImageIO libCGAL)
