@@ -283,9 +283,11 @@ bool svgfill::line_segments_to_polygons(const std::vector<std::vector<line_segme
 		// loops drawn over outer boundaries. In SVG draw order is defined by
 		// position in the tree.
 		// @nb we do now add the inner boundaries to the path as well.
+		/*
 		std::sort(ps.begin(), ps.end(), [](const Polygon_wh_2& a, const Polygon_wh_2& b) {
 			return a.outer_boundary().area() > b.outer_boundary().area();
 		});
+		*/
 
 		polygons.emplace_back();
 		polygons.back().reserve(ps.size());
