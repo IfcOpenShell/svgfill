@@ -45,8 +45,8 @@ namespace svgfill {
 	};
 
 	bool svg_to_line_segments(const std::string& filename, const boost::optional<std::string>& class_name, std::vector<std::vector<line_segment_2>>& segments);
-	bool line_segments_to_polygons(solver s, const std::vector<std::vector<line_segment_2>>& segments, std::vector<std::vector<polygon_2>>& polygons);
-	bool line_segments_to_polygons(solver s, const std::vector<std::vector<line_segment_2>>& segments, std::vector<std::vector<polygon_2>>& polygons, std::function<void(float)>& progress);
+	bool line_segments_to_polygons(solver s, double eps, const std::vector<std::vector<line_segment_2>>& segments, std::vector<std::vector<polygon_2>>& polygons);
+	bool line_segments_to_polygons(solver s, double eps, const std::vector<std::vector<line_segment_2>>& segments, std::vector<std::vector<polygon_2>>& polygons, std::function<void(float)>& progress);
 }
 
 #endif

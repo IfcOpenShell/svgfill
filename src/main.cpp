@@ -22,6 +22,7 @@
 #include "progress.h"
 
 #include <boost/optional.hpp>
+#include <boost/lexical_cast.hpp>
 #include <boost/algorithm/string/predicate.hpp>
 
 #include <map>
@@ -51,6 +52,7 @@ namespace {
 int main(int argc, char** argv) {
 	bool valid_command_line = false;
 	bool random_color = false;
+	double eps = 1.e-5;
 	boost::optional<std::string> class_name;
 	
 	std::vector<std::string> flags;
@@ -98,6 +100,10 @@ int main(int argc, char** argv) {
 				s = it->second;
 			}
 		}
+		else if (boost::starts_with(f, "--eps=")) {
+			std::string eps_str = f.substr(strlen("--eps="));
+			eps = boost::lexical_cast<double>(eps_str);
+		}
 		else {
 			valid_command_line = false;
 		}
@@ -124,7 +130,7 @@ int main(int argc, char** argv) {
 	}
 	ap.finished();
 
-	if (!svgfill::line_segments_to_polygons(s, segments, polygons, pfn)) {
+	if (!svgfill::line_segments_to_polygons(s, eps, segments, polygons, pfn)) {
 		return 1;
 	}
 

@@ -66,7 +66,6 @@ public:
 			last_emitted_p_ = new size_t(p);
 		}
 
-		std::cout << p << std::endl;
 		p = p > width_ ? width_ : p;
 		s_ << "\r[" + std::string(p, '#') + std::string(width_ - p, ' ') + "]" << std::flush;		
 	}

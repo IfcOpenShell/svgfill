@@ -177,12 +177,10 @@ bool svgfill::svg_to_line_segments(const std::string & filename, const boost::op
 	return true;
 }
 
-#define EPS 1.e-1
-
-bool svgfill::line_segments_to_polygons(solver s, const std::vector<std::vector<line_segment_2>>& segments, std::vector<std::vector<polygon_2>>& polygons)
+bool svgfill::line_segments_to_polygons(solver s, double eps, const std::vector<std::vector<line_segment_2>>& segments, std::vector<std::vector<polygon_2>>& polygons)
 {
 	std::function<void(float)> fn = [](float f) {};
-	return line_segments_to_polygons(s, segments, polygons, fn);
+	return line_segments_to_polygons(s, eps, segments, polygons, fn);
 }
 
 template <typename Kernel>
@@ -256,7 +254,7 @@ class cgal_arrangement {
 	}
 
 public:
-	bool operator()(const std::vector<std::vector<svgfill::line_segment_2>>& segments, std::vector<std::vector<svgfill::polygon_2>>& polygons, std::function<void(float)>& progress) {
+	bool operator()(double eps, const std::vector<std::vector<svgfill::line_segment_2>>& segments, std::vector<std::vector<svgfill::polygon_2>>& polygons, std::function<void(float)>& progress) {
 		float i = 0;
 		float total = 0.;
 		for (auto& g : segments) {
@@ -273,8 +271,8 @@ public:
 				ab /= std::sqrt(CGAL::to_double(ab.squared_length()));
 				// This appears to work better generally, slightly nudge the
 				// end points to make sure segments intersect.
-				a -= ab * EPS;
-				b += ab * EPS;
+				a -= ab * eps;
+				b += ab * eps;
 				Segment_2 seg(a, b);
 				CGAL::insert(arr, seg);
 
@@ -334,18 +332,18 @@ public:
 	}
 };
 
-bool svgfill::line_segments_to_polygons(solver s, const std::vector<std::vector<line_segment_2>>& segments, std::vector<std::vector<polygon_2>>& polygons, std::function<void(float)>& progress)
+bool svgfill::line_segments_to_polygons(solver s, double eps, const std::vector<std::vector<line_segment_2>>& segments, std::vector<std::vector<polygon_2>>& polygons, std::function<void(float)>& progress)
 {
 	if (s == CARTESIAN_DOUBLE) {
-		return cgal_arrangement<CGAL::Cartesian<double>>()(segments, polygons, progress);
+		return cgal_arrangement<CGAL::Cartesian<double>>()(eps, segments, polygons, progress);
 	} else if (s == CARTESIAN_QUOTIENT) {
-		return cgal_arrangement<CGAL::Cartesian<CGAL::Quotient<CGAL::MP_Float>>>()(segments, polygons, progress);
+		return cgal_arrangement<CGAL::Cartesian<CGAL::Quotient<CGAL::MP_Float>>>()(eps, segments, polygons, progress);
 	} else if (s == FILTERED_CARTESIAN_QUOTIENT) {
-		return cgal_arrangement<CGAL::Filtered_kernel<CGAL::Cartesian<CGAL::Quotient<CGAL::MP_Float>>>>()(segments, polygons, progress);
+		return cgal_arrangement<CGAL::Filtered_kernel<CGAL::Cartesian<CGAL::Quotient<CGAL::MP_Float>>>>()(eps, segments, polygons, progress);
 	} else if (s == EXACT_PREDICATES) {
-		return cgal_arrangement<CGAL::Epick>()(segments, polygons, progress);
+		return cgal_arrangement<CGAL::Epick>()(eps, segments, polygons, progress);
 	} else if (s == EXACT_CONSTRUCTIONS) {
-		return cgal_arrangement<CGAL::Epeck>()(segments, polygons, progress);
+		return cgal_arrangement<CGAL::Epeck>()(eps, segments, polygons, progress);
 	}
 	
 }
