@@ -33,17 +33,8 @@
 #include <CGAL/Polygon_2.h>
 #include <CGAL/Polygon_with_holes_2.h>
 #include <CGAL/Polygon_triangulation_decomposition_2.h>
-
-// @todo decide on Kernel
-typedef CGAL::Quotient<CGAL::MP_Float> Number_type;
-typedef CGAL::Cartesian<Number_type> Kernel;
-typedef CGAL::Arr_segment_traits_2<Kernel> Traits_2;
-typedef Traits_2::Point_2 Point_2;
-typedef Traits_2::X_monotone_curve_2 Segment_2;
-typedef CGAL::Arrangement_2<Traits_2> Arrangement_2;
-typedef CGAL::Polygon_2<Kernel> Polygon_2;
-typedef CGAL::Polygon_with_holes_2<Kernel> Polygon_wh_2;
-typedef typename Arrangement_2::Inner_ccb_const_iterator Inner_ccb_const_iterator;
+#include <CGAL/Exact_predicates_exact_constructions_kernel.h>
+#include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
 
 using namespace svgpp;
 
@@ -186,8 +177,26 @@ bool svgfill::svg_to_line_segments(const std::string & filename, const boost::op
 	return true;
 }
 
-namespace {
-	Polygon_2 circ_to_poly(Arrangement_2::Ccb_halfedge_const_circulator circ)
+#define EPS 1.e-1
+
+bool svgfill::line_segments_to_polygons(solver s, const std::vector<std::vector<line_segment_2>>& segments, std::vector<std::vector<polygon_2>>& polygons)
+{
+	std::function<void(float)> fn = [](float f) {};
+	return line_segments_to_polygons(s, segments, polygons, fn);
+}
+
+template <typename Kernel>
+class cgal_arrangement {
+	typedef CGAL::Arr_segment_traits_2<Kernel> Traits_2;
+	typedef typename Traits_2::Point_2 Point_2;
+	typedef typename Traits_2::X_monotone_curve_2 Segment_2;
+	typedef CGAL::Arrangement_2<Traits_2> Arrangement_2;
+	typedef CGAL::Polygon_2<Kernel> Polygon_2;
+	typedef CGAL::Polygon_with_holes_2<Kernel> Polygon_wh_2;
+	typedef typename Arrangement_2::Inner_ccb_const_iterator Inner_ccb_const_iterator;
+	typedef typename Arrangement_2::Ccb_halfedge_const_circulator Ccb_halfedge_const_circulator;
+
+	Polygon_2 circ_to_poly(Ccb_halfedge_const_circulator circ)
 	{
 		Polygon_2 poly;
 		auto curr = circ;
@@ -204,12 +213,12 @@ namespace {
 			throw std::runtime_error("Unexpected number of points in polygon");
 		}
 		auto p = *poly.vertices_begin();
-		auto q = *next(poly.vertices_begin(),1);
-		auto r = *next(poly.vertices_begin(),2);
+		auto q = *next(poly.vertices_begin(), 1);
+		auto r = *next(poly.vertices_begin(), 2);
 		return CGAL::Triangle_2<Kernel>(p, q, r);
 	}
 
-	Polygon_wh_2 circ_to_poly(Arrangement_2::Ccb_halfedge_const_circulator circ, Inner_ccb_const_iterator a, Inner_ccb_const_iterator b)
+	Polygon_wh_2 circ_to_poly(Ccb_halfedge_const_circulator circ, Inner_ccb_const_iterator a, Inner_ccb_const_iterator b)
 	{
 		Polygon_wh_2 poly(circ_to_poly(circ));
 		for (auto it = a; it != b; ++it) {
@@ -245,69 +254,98 @@ namespace {
 		*/
 		outpoly.point_inside = create_point(CGAL::centroid(triangle));
 	}
-}
 
-bool svgfill::line_segments_to_polygons(const std::vector<std::vector<line_segment_2>>& segments, std::vector<std::vector<polygon_2>>& polygons)
-{
-	for (auto& g : segments) {
-		Arrangement_2 arr;
-
-		for (auto& l : g) {
-			Point_2 a(l[0][0], l[0][1]);
-			Point_2 b(l[1][0], l[1][1]);
-			auto ab = b - a;
-			ab /= std::sqrt(CGAL::to_double(ab.squared_length()));
-			// This appears to work better generally, slightly nudge the
-			// end points to make sure segments intersect.
-			a -= ab * 1.e-5;
-			b += ab * 1.e-5;
-			Segment_2 seg(a, b);
-			CGAL::insert(arr, seg);
+public:
+	bool operator()(const std::vector<std::vector<svgfill::line_segment_2>>& segments, std::vector<std::vector<svgfill::polygon_2>>& polygons, std::function<void(float)>& progress) {
+		float i = 0;
+		float total = 0.;
+		for (auto& g : segments) {
+			total += g.size() + g.size() / 2;
 		}
 
-		std::vector<Polygon_wh_2> ps;
-		ps.reserve(std::distance(arr.faces_begin(), arr.faces_end()));
+		for (auto& g : segments) {
+			Arrangement_2 arr;
 
-		for (auto it = arr.faces_begin(); it != arr.faces_end(); ++it) {
-			const auto& f = *it;
-			if (!f.is_unbounded()) {				
-				ps.push_back(circ_to_poly(
-					f.outer_ccb(),
-					f.inner_ccbs_begin(),
-					f.inner_ccbs_end()
-				));
+			for (auto& l : g) {
+				Point_2 a(l[0][0], l[0][1]);
+				Point_2 b(l[1][0], l[1][1]);
+				auto ab = b - a;
+				ab /= std::sqrt(CGAL::to_double(ab.squared_length()));
+				// This appears to work better generally, slightly nudge the
+				// end points to make sure segments intersect.
+				a -= ab * EPS;
+				b += ab * EPS;
+				Segment_2 seg(a, b);
+				CGAL::insert(arr, seg);
+
+				progress(i++ / total);
 			}
-		}
 
-		// Sort polygons (only taking into account outer boundary) to have inner
-		// loops drawn over outer boundaries. In SVG draw order is defined by
-		// position in the tree.
-		// @nb we do now add the inner boundaries to the path as well.
-		/*
-		std::sort(ps.begin(), ps.end(), [](const Polygon_wh_2& a, const Polygon_wh_2& b) {
-			return a.outer_boundary().area() > b.outer_boundary().area();
-		});
-		*/
+			std::vector<Polygon_wh_2> ps;
+			ps.reserve(std::distance(arr.faces_begin(), arr.faces_end()));
 
-		polygons.emplace_back();
-		polygons.back().reserve(ps.size());
+			for (auto it = arr.faces_begin(); it != arr.faces_end(); ++it) {
+				const auto& f = *it;
+				if (!f.is_unbounded()) {
+					ps.push_back(circ_to_poly(
+						f.outer_ccb(),
+						f.inner_ccbs_begin(),
+						f.inner_ccbs_end()
+					));
+				}
 
-		std::transform(ps.begin(), ps.end(), std::back_inserter(polygons.back()), [](const Polygon_wh_2& p) {
-			svgfill::polygon_2 p2;
-			std::transform(p.outer_boundary().vertices_begin(), p.outer_boundary().vertices_end(), std::back_inserter(p2.boundary), [](const Point_2& pt) {
-				return create_point(pt);
+				progress(i++ / total);
+			}
+
+			// Sort polygons (only taking into account outer boundary) to have inner
+			// loops drawn over outer boundaries. In SVG draw order is defined by
+			// position in the tree.
+			// @nb we do now add the inner boundaries to the path as well.
+			/*
+			std::sort(ps.begin(), ps.end(), [](const Polygon_wh_2& a, const Polygon_wh_2& b) {
+				return a.outer_boundary().area() > b.outer_boundary().area();
 			});
-			std::transform(p.holes_begin(), p.holes_end(), std::back_inserter(p2.inner_boundaries), [](const Polygon_2& poly) {
-				svgfill::loop_2 lp;
-				std::transform(poly.vertices_begin(), poly.vertices_end(), std::back_inserter(lp), [](const Point_2& pt) {
+			*/
+
+			polygons.emplace_back();
+			polygons.back().reserve(ps.size());
+
+			std::transform(ps.begin(), ps.end(), std::back_inserter(polygons.back()), [this, &i, &progress, &total](const Polygon_wh_2& p) {
+				svgfill::polygon_2 p2;
+				std::transform(p.outer_boundary().vertices_begin(), p.outer_boundary().vertices_end(), std::back_inserter(p2.boundary), [this](const Point_2& pt) {
 					return create_point(pt);
 				});
-				return lp;
-			});
-			set_point_inside(p, p2);
-			return p2;
-		});
-	}
+				std::transform(p.holes_begin(), p.holes_end(), std::back_inserter(p2.inner_boundaries), [this](const Polygon_2& poly) {
+					svgfill::loop_2 lp;
+					std::transform(poly.vertices_begin(), poly.vertices_end(), std::back_inserter(lp), [this](const Point_2& pt) {
+						return create_point(pt);
+					});
+					return lp;
+				});
+				set_point_inside(p, p2);
 
-	return true;
+				progress(i++ / total);
+
+				return p2;
+			});
+		}
+
+		return true;
+	}
+};
+
+bool svgfill::line_segments_to_polygons(solver s, const std::vector<std::vector<line_segment_2>>& segments, std::vector<std::vector<polygon_2>>& polygons, std::function<void(float)>& progress)
+{
+	if (s == CARTESIAN_DOUBLE) {
+		return cgal_arrangement<CGAL::Cartesian<double>>()(segments, polygons, progress);
+	} else if (s == CARTESIAN_QUOTIENT) {
+		return cgal_arrangement<CGAL::Cartesian<CGAL::Quotient<CGAL::MP_Float>>>()(segments, polygons, progress);
+	} else if (s == FILTERED_CARTESIAN_QUOTIENT) {
+		return cgal_arrangement<CGAL::Filtered_kernel<CGAL::Cartesian<CGAL::Quotient<CGAL::MP_Float>>>>()(segments, polygons, progress);
+	} else if (s == EXACT_PREDICATES) {
+		return cgal_arrangement<CGAL::Epick>()(segments, polygons, progress);
+	} else if (s == EXACT_CONSTRUCTIONS) {
+		return cgal_arrangement<CGAL::Epeck>()(segments, polygons, progress);
+	}
+	
 }

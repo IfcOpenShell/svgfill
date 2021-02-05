@@ -19,10 +19,12 @@
  ****************************************************************************/
 
 #include "svgfill.h"
+#include "progress.h"
 
 #include <boost/optional.hpp>
 #include <boost/algorithm/string/predicate.hpp>
 
+#include <map>
 #include <random>
 #include <sstream>
 #include <fstream>
@@ -53,6 +55,14 @@ int main(int argc, char** argv) {
 	
 	std::vector<std::string> flags;
 	std::vector<std::string> args;
+	svgfill::solver s = svgfill::FILTERED_CARTESIAN_QUOTIENT;
+	std::map<std::string, svgfill::solver> solver_mapping {
+		{"cartesian_double", svgfill::CARTESIAN_DOUBLE},
+		{"cartesian_quotient", svgfill::CARTESIAN_QUOTIENT},
+		{"filtered_cartesian_quotient", svgfill::FILTERED_CARTESIAN_QUOTIENT},
+		{"exact_predicates", svgfill::EXACT_PREDICATES},
+		{"exact_constructions", svgfill::EXACT_CONSTRUCTIONS},
+	};
 
 	for (int i = 1; i < argc; ++i) {
 		std::string a = argv[i];
@@ -78,6 +88,16 @@ int main(int argc, char** argv) {
 		else if (boost::starts_with(f, "--class=")) {
 			class_name = f.substr(strlen("--class="));
 		}
+		else if (boost::starts_with(f, "--solver=")) {
+			std::string solver_str = f.substr(strlen("--solver="));
+			auto it = solver_mapping.find(solver_str);
+			if (it == solver_mapping.end()) {
+				valid_command_line = false;
+			}
+			else {
+				s = it->second;
+			}
+		}
 		else {
 			valid_command_line = false;
 		}
@@ -95,41 +115,52 @@ int main(int argc, char** argv) {
 	std::vector<std::vector<svgfill::line_segment_2>> segments;
 	std::vector<std::vector<svgfill::polygon_2>> polygons;
 
-	if (svgfill::svg_to_line_segments(fn, class_name, segments) &&
-		svgfill::line_segments_to_polygons(segments, polygons))
-	{
-		std::ofstream ofs(ofn.c_str());
-		ofs << "<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" xmlns:ifc=\"http://www.ifcopenshell.org/ns\">";
-		ofs << "<style type=\"text/css\">";
-		ofs << "	<![CDATA[";
-		ofs << "		path {";
-		ofs << "			stroke: #222222;";
-		ofs << "			fill: #444444;";
-		ofs << "		}";
-		ofs << "	]]>";
-		ofs << "</style>";
+	progress_bar p;
+	application_progress ap({1., 10., 1.}, p);
+	std::function<void(float)> pfn = [&ap](float f) { ap(f); };
 
-		for (auto& g : polygons) {
-			ofs << "<g>";
-			for (auto& p : g) {
-				const int h = dist(mt);
-				const int s = 50;
-				const int l = 50;
-				std::string style;
-				if (random_color) {
-					std::ostringstream oss;
-					oss << "style = \"fill: hsl(" << h << "," << s << "%, " << l << "%)\"";
-					style = oss.str();
-				}
-				ofs << "<path d=\"" << format_poly(p.boundary);
-				for (auto& inner : p.inner_boundaries) {
-					ofs << " " << format_poly(inner);
-				}
-				ofs << "\" " << style << " ifc:pointInside=\"" << format_pt(p.point_inside) << "\"/>";
-			}
-			ofs << "</g>";
-		}
-
-		ofs << "</svg>";
+	if (!svgfill::svg_to_line_segments(fn, class_name, segments)) {
+		return 1;
 	}
+	ap.finished();
+
+	if (!svgfill::line_segments_to_polygons(s, segments, polygons, pfn)) {
+		return 1;
+	}
+
+	ap.finished();
+
+	std::ofstream ofs(ofn.c_str());
+	ofs << "<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" xmlns:ifc=\"http://www.ifcopenshell.org/ns\">";
+	ofs << "<style type=\"text/css\">";
+	ofs << "	<![CDATA[";
+	ofs << "		path {";
+	ofs << "			stroke: #222222;";
+	ofs << "			fill: #444444;";
+	ofs << "		}";
+	ofs << "	]]>";
+	ofs << "</style>";
+
+	for (auto& g : polygons) {
+		ofs << "<g>";
+		for (auto& p : g) {
+			const int h = dist(mt);
+			const int s = 50;
+			const int l = 50;
+			std::string style;
+			if (random_color) {
+				std::ostringstream oss;
+				oss << "style = \"fill: hsl(" << h << "," << s << "%, " << l << "%)\"";
+				style = oss.str();
+			}
+			ofs << "<path d=\"" << format_poly(p.boundary);
+			for (auto& inner : p.inner_boundaries) {
+				ofs << " " << format_poly(inner);
+			}
+			ofs << "\" " << style << " ifc:pointInside=\"" << format_pt(p.point_inside) << "\"/>";
+		}
+		ofs << "</g>";
+	}
+
+	ofs << "</svg>";
 }

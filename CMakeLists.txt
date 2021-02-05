@@ -73,6 +73,10 @@ else()
     endif()
 endif()
 
+if (MSVC)
+	add_definitions(-bigobj)
+endif()
+
 find_package(Boost)
 message(STATUS "Boost include files found in ${Boost_INCLUDE_DIRS}")
 
@@ -84,7 +88,7 @@ file(GLOB LIB_H_FILES src/*.h)
 file(GLOB LIB_CPP_FILES src/svgfill.cpp)
 set(LIB_SRC_FILES ${LIB_H_FILES} ${LIB_CPP_FILES})
 add_library(libsvgfill ${LIB_SRC_FILES})
-target_link_libraries(libsvgfill ${Boost_LIBRARIES} ${BCRYPT_LIBRARIES} ${LIBXML2_LIBRARIES})
+target_link_libraries(libsvgfill ${Boost_LIBRARIES} ${BCRYPT_LIBRARIES} ${LIBXML2_LIBRARIES} ${CGAL_LIBRARIES})
 
 add_executable(svgfill src/main.cpp)
 target_link_libraries(svgfill libsvgfill)

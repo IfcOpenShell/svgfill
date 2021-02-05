@@ -36,8 +36,17 @@ namespace svgfill {
 		point_2 point_inside;
 	};
 
+	enum solver {
+		CARTESIAN_DOUBLE,
+		CARTESIAN_QUOTIENT,
+		FILTERED_CARTESIAN_QUOTIENT,
+		EXACT_PREDICATES,
+		EXACT_CONSTRUCTIONS
+	};
+
 	bool svg_to_line_segments(const std::string& filename, const boost::optional<std::string>& class_name, std::vector<std::vector<line_segment_2>>& segments);
-	bool line_segments_to_polygons(const std::vector<std::vector<line_segment_2>>& segments, std::vector<std::vector<polygon_2>>& polygons);
+	bool line_segments_to_polygons(solver s, const std::vector<std::vector<line_segment_2>>& segments, std::vector<std::vector<polygon_2>>& polygons);
+	bool line_segments_to_polygons(solver s, const std::vector<std::vector<line_segment_2>>& segments, std::vector<std::vector<polygon_2>>& polygons, std::function<void(float)>& progress);
 }
 
 #endif
