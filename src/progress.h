@@ -53,21 +53,28 @@ public:
 	progress_bar(std::ostream& s = std::cerr, style st = BAR, float max = 1., size_t width = 50)
 		: s_(s)
 		, max_(max)
-		, width_(width)
+		, width_(st == BAR ? width : 100U)
 		, style_(st)
 	{}
 
 	void operator()(size_t p) {
 		if (last_emitted_p_ && p <= *last_emitted_p_) {
 			return;
-		} else if (last_emitted_p_) {
-			*last_emitted_p_ = p;
-		} else {
-			last_emitted_p_ = new size_t(p);
 		}
 
 		p = p > width_ ? width_ : p;
-		s_ << "\r[" + std::string(p, '#') + std::string(width_ - p, ' ') + "]" << std::flush;		
+		if (style_ == BAR) {
+			s_ << "\r[" + std::string(p, '#') + std::string(width_ - p, ' ') + "]" << std::flush;
+		} else {
+			s_ << std::string(p - (last_emitted_p_ ? *last_emitted_p_ : 0U), '.') << std::flush;
+		}
+
+		if (last_emitted_p_) {
+			*last_emitted_p_ = p;
+		}
+		else {
+			last_emitted_p_ = new size_t(p);
+		}
 	}
 
 	void operator()(float p) {

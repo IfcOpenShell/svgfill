@@ -65,10 +65,11 @@ int main(int argc, char** argv) {
 		{"exact_predicates", svgfill::EXACT_PREDICATES},
 		{"exact_constructions", svgfill::EXACT_CONSTRUCTIONS},
 	};
+	progress_bar::style	progress_style = progress_bar::BAR;
 
 	for (int i = 1; i < argc; ++i) {
 		std::string a = argv[i];
-		if (boost::starts_with(a, "--")) {
+		if (boost::starts_with(a, "-")) {
 			flags.push_back(a);
 		}
 		else {
@@ -86,6 +87,9 @@ int main(int argc, char** argv) {
 	for (auto& f : flags) {
 		if (f == "--random-color") {
 			random_color = true;
+		}
+		else if (f == "-q") {
+			progress_style = progress_bar::DOTS;
 		}
 		else if (boost::starts_with(f, "--class=")) {
 			class_name = f.substr(strlen("--class="));
@@ -121,7 +125,7 @@ int main(int argc, char** argv) {
 	std::vector<std::vector<svgfill::line_segment_2>> segments;
 	std::vector<std::vector<svgfill::polygon_2>> polygons;
 
-	progress_bar p;
+	progress_bar p(std::cout, progress_style);
 	application_progress ap({1., 10., 1.}, p);
 	std::function<void(float)> pfn = [&ap](float f) { ap(f); };
 
