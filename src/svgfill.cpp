@@ -153,12 +153,12 @@ boost::mpl::fold<
 	boost::mpl::insert<boost::mpl::_1, boost::mpl::_2>
 >::type processed_attributes_t;
 
-bool svgfill::svg_to_line_segments(const std::string & filename, const boost::optional<std::string>& class_name, std::vector<std::vector<line_segment_2>>& segments)
+bool svgfill::svg_to_line_segments(const std::string& data, const boost::optional<std::string>& class_name, std::vector<std::vector<line_segment_2>>& segments)
 {
 	Context context;
 	context.class_name = class_name;
 
-	xmlDoc* doc = xmlReadFile(filename.c_str(), NULL, 0);
+	xmlDoc* doc = xmlReadMemory(data.c_str(), data.size(), nullptr, nullptr, 0);
 	xmlNode* elem = xmlDocGetRootElement(doc);
 
 	try {

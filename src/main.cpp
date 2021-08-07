@@ -30,6 +30,7 @@
 #include <sstream>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 
 namespace {
 	std::string format_pt(const svgfill::point_2& p) {
@@ -129,7 +130,11 @@ int main(int argc, char** argv) {
 	application_progress ap({1., 10., 1.}, p);
 	std::function<void(float)> pfn = [&ap](float f) { ap(f); };
 
-	if (!svgfill::svg_to_line_segments(fn, class_name, segments)) {
+	std::ifstream fs(fn.c_str());
+	std::string data(std::istreambuf_iterator<char>{fs}, {});
+	fs.close();
+
+	if (!svgfill::svg_to_line_segments(data, class_name, segments)) {
 		return 1;
 	}
 	ap.finished();
