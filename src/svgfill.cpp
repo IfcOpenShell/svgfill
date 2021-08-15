@@ -36,6 +36,8 @@
 #include <CGAL/Exact_predicates_exact_constructions_kernel.h>
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
 
+#include <random>
+
 using namespace svgpp;
 
 class Context
@@ -344,6 +346,66 @@ bool svgfill::line_segments_to_polygons(solver s, double eps, const std::vector<
 		return cgal_arrangement<CGAL::Epick>()(eps, segments, polygons, progress);
 	} else if (s == EXACT_CONSTRUCTIONS) {
 		return cgal_arrangement<CGAL::Epeck>()(eps, segments, polygons, progress);
+	}	
+}
+
+namespace {
+	std::string format_pt(const svgfill::point_2& p) {
+		std::ostringstream oss;
+		oss << p[0] << "," << p[1];
+		return oss.str();
 	}
-	
+
+	std::string format_poly(const svgfill::loop_2& p) {
+		std::ostringstream oss;
+		for (auto it = p.begin(); it != p.end(); ++it) {
+			oss << ((it == p.begin()) ? "M" : " L");
+			oss << format_pt(*it);
+		}
+		oss << " Z";
+		return oss.str();
+	}
+}
+
+std::string svgfill::polygons_to_svg(const std::vector<std::vector<polygon_2>>& polygons, bool random_color) {
+	std::random_device rd;
+	std::mt19937 mt(rd());
+	std::uniform_int_distribution<size_t> dist(0, 360);
+
+	std::ostringstream oss;
+
+	oss << "<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" xmlns:ifc=\"http://www.ifcopenshell.org/ns\">";
+	oss << "<style type=\"text/css\">";
+	oss << "	<![CDATA[";
+	oss << "		path {";
+	oss << "			stroke: #222222;";
+	oss << "			fill: #444444;";
+	oss << "		}";
+	oss << "	]]>";
+	oss << "</style>";
+
+	for (auto& g : polygons) {
+		oss << "<g>";
+		for (auto& p : g) {
+			const int h = dist(mt);
+			const int s = 50;
+			const int l = 50;
+			std::string style;
+			if (random_color) {
+				std::ostringstream oss;
+				oss << "style = \"fill: hsl(" << h << "," << s << "%, " << l << "%)\"";
+				style = oss.str();
+			}
+			oss << "<path d=\"" << format_poly(p.boundary);
+			for (auto& inner : p.inner_boundaries) {
+				oss << " " << format_poly(inner);
+			}
+			oss << "\" " << style << " ifc:pointInside=\"" << format_pt(p.point_inside) << "\"/>";
+		}
+		oss << "</g>";
+	}
+
+	oss << "</svg>";
+
+	return oss.str();
 }

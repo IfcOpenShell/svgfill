@@ -26,29 +26,10 @@
 #include <boost/algorithm/string/predicate.hpp>
 
 #include <map>
-#include <random>
 #include <sstream>
 #include <fstream>
 #include <iostream>
 #include <iterator>
-
-namespace {
-	std::string format_pt(const svgfill::point_2& p) {
-		std::ostringstream oss;
-		oss << p[0] << "," << p[1];
-		return oss.str();
-	}
-
-	std::string format_poly(const svgfill::loop_2& p) {
-		std::ostringstream oss;
-		for (auto it = p.begin(); it != p.end(); ++it) {
-			oss << ((it == p.begin()) ? "M" : " L");
-			oss << format_pt(*it);
-		}
-		oss << " Z";
-		return oss.str();
-	}
-}
 
 int main(int argc, char** argv) {
 	bool valid_command_line = false;
@@ -119,10 +100,6 @@ int main(int argc, char** argv) {
  		return 1;
 	}
 
-	std::random_device rd;
-	std::mt19937 mt(rd());
-	std::uniform_int_distribution<size_t> dist(0, 360);
-
 	std::vector<std::vector<svgfill::line_segment_2>> segments;
 	std::vector<std::vector<svgfill::polygon_2>> polygons;
 
@@ -146,36 +123,5 @@ int main(int argc, char** argv) {
 	ap.finished();
 
 	std::ofstream ofs(ofn.c_str());
-	ofs << "<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" xmlns:ifc=\"http://www.ifcopenshell.org/ns\">";
-	ofs << "<style type=\"text/css\">";
-	ofs << "	<![CDATA[";
-	ofs << "		path {";
-	ofs << "			stroke: #222222;";
-	ofs << "			fill: #444444;";
-	ofs << "		}";
-	ofs << "	]]>";
-	ofs << "</style>";
-
-	for (auto& g : polygons) {
-		ofs << "<g>";
-		for (auto& p : g) {
-			const int h = dist(mt);
-			const int s = 50;
-			const int l = 50;
-			std::string style;
-			if (random_color) {
-				std::ostringstream oss;
-				oss << "style = \"fill: hsl(" << h << "," << s << "%, " << l << "%)\"";
-				style = oss.str();
-			}
-			ofs << "<path d=\"" << format_poly(p.boundary);
-			for (auto& inner : p.inner_boundaries) {
-				ofs << " " << format_poly(inner);
-			}
-			ofs << "\" " << style << " ifc:pointInside=\"" << format_pt(p.point_inside) << "\"/>";
-		}
-		ofs << "</g>";
-	}
-
-	ofs << "</svg>";
+	ofs << svgfill::polygons_to_svg(polygons, random_color);
 }
