@@ -44,6 +44,50 @@ namespace svgfill {
 		EXACT_CONSTRUCTIONS
 	};
 
+	class abstract_arrangement {
+	public:
+		virtual ~abstract_arrangement() {}
+		virtual bool operator()(double eps, const std::vector<std::vector<svgfill::line_segment_2>>& segments, std::vector<std::vector<svgfill::polygon_2>>& polygons, std::function<void(float)>& progress) = 0;
+		virtual void merge() = 0;
+		virtual std::vector<int> get_face_pairs() = 0;
+	};
+
+	class context {
+	private:
+		solver solver_;
+		double eps_;
+		std::vector<std::vector<line_segment_2>> segments_;
+		std::function<void(float)> progress_;
+		std::vector<std::vector<polygon_2>> polygons_;
+		abstract_arrangement* arr_;
+
+	public:
+		context(solver s, double eps)
+			: solver_(s)
+			, eps_(eps)
+			, arr_(nullptr)
+		{}
+
+		context(solver s, double eps, std::function<void(float)>& progress)
+			: solver_(s)
+			, eps_(eps)
+			, progress_(progress)
+			, arr_(nullptr)
+		{}
+
+		void add(const std::vector<std::vector<line_segment_2>>& segments);
+		bool build();
+		std::vector<int> get_face_pairs() {
+			return arr_->get_face_pairs();
+		}
+		void merge();
+		void write(std::vector<std::vector<polygon_2>>&);
+
+		~context() {
+			delete arr_;
+		}
+	};
+
 	bool svg_to_line_segments(const std::string& data, const boost::optional<std::string>& class_name, std::vector<std::vector<line_segment_2>>& segments);
 	bool line_segments_to_polygons(solver s, double eps, const std::vector<std::vector<line_segment_2>>& segments, std::vector<std::vector<polygon_2>>& polygons);
 	bool line_segments_to_polygons(solver s, double eps, const std::vector<std::vector<line_segment_2>>& segments, std::vector<std::vector<polygon_2>>& polygons, std::function<void(float)>& progress);

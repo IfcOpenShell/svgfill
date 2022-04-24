@@ -186,7 +186,7 @@ bool svgfill::line_segments_to_polygons(solver s, double eps, const std::vector<
 }
 
 template <typename Kernel>
-class cgal_arrangement {
+class cgal_arrangement : public svgfill::abstract_arrangement {
 	typedef CGAL::Arr_segment_traits_2<Kernel> Traits_2;
 	typedef typename Traits_2::Point_2 Point_2;
 	typedef typename Traits_2::X_monotone_curve_2 Segment_2;
@@ -255,6 +255,8 @@ class cgal_arrangement {
 		outpoly.point_inside = create_point(CGAL::centroid(triangle));
 	}
 
+	Arrangement_2 arr;
+
 public:
 	bool operator()(double eps, const std::vector<std::vector<svgfill::line_segment_2>>& segments, std::vector<std::vector<svgfill::polygon_2>>& polygons, std::function<void(float)>& progress) {
 		float i = 0;
@@ -264,8 +266,6 @@ public:
 		}
 
 		for (auto& g : segments) {
-			Arrangement_2 arr;
-
 			for (auto& l : g) {
 				Point_2 a(l[0][0], l[0][1]);
 				Point_2 b(l[1][0], l[1][1]);
@@ -332,21 +332,36 @@ public:
 
 		return true;
 	}
+
+	std::vector<int> get_face_pairs() {
+		std::vector<int> ps;
+		ps.reserve(arr.number_of_edges() * 2);
+		for (auto it = arr.edges_begin(); it != arr.edges_end(); ++it) {
+			size_t a = std::distance(arr.faces_begin(), it->face());
+			size_t b = std::distance(arr.faces_begin(), it->twin()->face());
+			ps.push_back(a);
+			ps.push_back(b);
+		}
+		return ps;
+	}
+
+	void merge() {
+		for (auto it = arr.edges_begin(); it != arr.edges_end(); ++it) {
+			size_t a = std::distance(arr.faces_begin(), it->face());
+			size_t b = std::distance(arr.faces_begin(), it->twin()->face());
+		}
+	}
 };
 
 bool svgfill::line_segments_to_polygons(solver s, double eps, const std::vector<std::vector<line_segment_2>>& segments, std::vector<std::vector<polygon_2>>& polygons, std::function<void(float)>& progress)
 {
-	if (s == CARTESIAN_DOUBLE) {
-		return cgal_arrangement<CGAL::Cartesian<double>>()(eps, segments, polygons, progress);
-	} else if (s == CARTESIAN_QUOTIENT) {
-		return cgal_arrangement<CGAL::Cartesian<CGAL::Quotient<CGAL::MP_Float>>>()(eps, segments, polygons, progress);
-	} else if (s == FILTERED_CARTESIAN_QUOTIENT) {
-		return cgal_arrangement<CGAL::Filtered_kernel<CGAL::Cartesian<CGAL::Quotient<CGAL::MP_Float>>>>()(eps, segments, polygons, progress);
-	} else if (s == EXACT_PREDICATES) {
-		return cgal_arrangement<CGAL::Epick>()(eps, segments, polygons, progress);
-	} else if (s == EXACT_CONSTRUCTIONS) {
-		return cgal_arrangement<CGAL::Epeck>()(eps, segments, polygons, progress);
-	}	
+	context ctx(s, eps, progress);
+	ctx.add(segments);
+	auto b = ctx.build();
+	if (b) {
+		ctx.write(polygons);
+	}
+	return b;
 }
 
 namespace {
@@ -408,4 +423,31 @@ std::string svgfill::polygons_to_svg(const std::vector<std::vector<polygon_2>>& 
 	oss << "</svg>";
 
 	return oss.str();
+}
+
+void svgfill::context::add(const std::vector<std::vector<line_segment_2>>& segments) {
+	segments_.insert(segments_.end(), segments.begin(), segments.end());
+}
+
+bool svgfill::context::build() {
+	if (solver_ == CARTESIAN_DOUBLE) {
+		arr_ = new cgal_arrangement<CGAL::Cartesian<double>>;
+	} else if (solver_ == CARTESIAN_QUOTIENT) {
+		arr_ = new cgal_arrangement<CGAL::Cartesian<CGAL::Quotient<CGAL::MP_Float>>>;
+	} else if (solver_ == FILTERED_CARTESIAN_QUOTIENT) {
+		arr_ = new cgal_arrangement<CGAL::Filtered_kernel<CGAL::Cartesian<CGAL::Quotient<CGAL::MP_Float>>>>;
+	} else if (solver_ == EXACT_PREDICATES) {
+		arr_ = new cgal_arrangement<CGAL::Epick>;
+	} else if (solver_ == EXACT_CONSTRUCTIONS) {
+		arr_ = new cgal_arrangement<CGAL::Epeck>;
+	}
+	return (*arr_)(eps_, segments_, polygons_, progress_);
+}
+
+void svgfill::context::merge() {
+	arr_->merge();
+}
+
+void svgfill::context::write(std::vector<std::vector<polygon_2>>& p) {
+	p = polygons_;
 }
