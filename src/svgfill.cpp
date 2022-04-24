@@ -195,6 +195,8 @@ class cgal_arrangement : public svgfill::abstract_arrangement {
 	typedef CGAL::Polygon_with_holes_2<Kernel> Polygon_wh_2;
 	typedef typename Arrangement_2::Inner_ccb_const_iterator Inner_ccb_const_iterator;
 	typedef typename Arrangement_2::Ccb_halfedge_const_circulator Ccb_halfedge_const_circulator;
+	typedef typename Arrangement_2::Halfedge_handle Halfedge_handle;
+	typedef typename Arrangement_2::Face_handle Face_handle;
 
 	Polygon_2 circ_to_poly(Ccb_halfedge_const_circulator circ)
 	{
@@ -256,79 +258,84 @@ class cgal_arrangement : public svgfill::abstract_arrangement {
 	}
 
 	Arrangement_2 arr;
+	float total, i;
 
 public:
-	bool operator()(double eps, const std::vector<std::vector<svgfill::line_segment_2>>& segments, std::vector<std::vector<svgfill::polygon_2>>& polygons, std::function<void(float)>& progress) {
-		float i = 0;
-		float total = 0.;
-		for (auto& g : segments) {
-			total += g.size() + g.size() / 2;
+	bool operator()(double eps, const std::vector<svgfill::line_segment_2>& segments, std::function<void(float)>& progress) {
+		i = 0;
+		total = segments.size() + segments.size() / 2;
+
+		for (auto& l : segments) {
+			Point_2 a(l[0][0], l[0][1]);
+			Point_2 b(l[1][0], l[1][1]);
+			auto ab = b - a;
+			ab /= std::sqrt(CGAL::to_double(ab.squared_length()));
+			// This appears to work better generally, slightly nudge the
+			// end points to make sure segments intersect.
+			a -= ab * eps;
+			b += ab * eps;
+			Segment_2 seg(a, b);
+			CGAL::insert(arr, seg);
+
+			if (progress) {
+				progress(i++ / total);
+			}
 		}
 
-		for (auto& g : segments) {
-			for (auto& l : g) {
-				Point_2 a(l[0][0], l[0][1]);
-				Point_2 b(l[1][0], l[1][1]);
-				auto ab = b - a;
-				ab /= std::sqrt(CGAL::to_double(ab.squared_length()));
-				// This appears to work better generally, slightly nudge the
-				// end points to make sure segments intersect.
-				a -= ab * eps;
-				b += ab * eps;
-				Segment_2 seg(a, b);
-				CGAL::insert(arr, seg);
+		return true;
+	}
 
-				progress(i++ / total);
+	bool write(std::vector<svgfill::polygon_2>& polygons, std::function<void(float)>& progress) {
+		std::vector<Polygon_wh_2> ps;
+		ps.reserve(std::distance(arr.faces_begin(), arr.faces_end()));
+
+		for (auto it = arr.faces_begin(); it != arr.faces_end(); ++it) {
+			const auto& f = *it;
+			if (!f.is_unbounded()) {
+				ps.push_back(circ_to_poly(
+					f.outer_ccb(),
+					f.inner_ccbs_begin(),
+					f.inner_ccbs_end()
+				));
 			}
 
-			std::vector<Polygon_wh_2> ps;
-			ps.reserve(std::distance(arr.faces_begin(), arr.faces_end()));
-
-			for (auto it = arr.faces_begin(); it != arr.faces_end(); ++it) {
-				const auto& f = *it;
-				if (!f.is_unbounded()) {
-					ps.push_back(circ_to_poly(
-						f.outer_ccb(),
-						f.inner_ccbs_begin(),
-						f.inner_ccbs_end()
-					));
-				}
-
+			if (progress) {
 				progress(i++ / total);
 			}
+		}
 
-			// Sort polygons (only taking into account outer boundary) to have inner
-			// loops drawn over outer boundaries. In SVG draw order is defined by
-			// position in the tree.
-			// @nb we do now add the inner boundaries to the path as well.
-			/*
-			std::sort(ps.begin(), ps.end(), [](const Polygon_wh_2& a, const Polygon_wh_2& b) {
-				return a.outer_boundary().area() > b.outer_boundary().area();
+		// Sort polygons (only taking into account outer boundary) to have inner
+		// loops drawn over outer boundaries. In SVG draw order is defined by
+		// position in the tree.
+		// @nb we do now add the inner boundaries to the path as well.
+		/*
+		std::sort(ps.begin(), ps.end(), [](const Polygon_wh_2& a, const Polygon_wh_2& b) {
+			return a.outer_boundary().area() > b.outer_boundary().area();
+		});
+		*/
+
+		polygons.reserve(ps.size());
+
+		std::transform(ps.begin(), ps.end(), std::back_inserter(polygons), [this, &progress](const Polygon_wh_2& p) {
+			svgfill::polygon_2 p2;
+			std::transform(p.outer_boundary().vertices_begin(), p.outer_boundary().vertices_end(), std::back_inserter(p2.boundary), [this](const Point_2& pt) {
+				return create_point(pt);
 			});
-			*/
-
-			polygons.emplace_back();
-			polygons.back().reserve(ps.size());
-
-			std::transform(ps.begin(), ps.end(), std::back_inserter(polygons.back()), [this, &i, &progress, &total](const Polygon_wh_2& p) {
-				svgfill::polygon_2 p2;
-				std::transform(p.outer_boundary().vertices_begin(), p.outer_boundary().vertices_end(), std::back_inserter(p2.boundary), [this](const Point_2& pt) {
+			std::transform(p.holes_begin(), p.holes_end(), std::back_inserter(p2.inner_boundaries), [this](const Polygon_2& poly) {
+				svgfill::loop_2 lp;
+				std::transform(poly.vertices_begin(), poly.vertices_end(), std::back_inserter(lp), [this](const Point_2& pt) {
 					return create_point(pt);
 				});
-				std::transform(p.holes_begin(), p.holes_end(), std::back_inserter(p2.inner_boundaries), [this](const Polygon_2& poly) {
-					svgfill::loop_2 lp;
-					std::transform(poly.vertices_begin(), poly.vertices_end(), std::back_inserter(lp), [this](const Point_2& pt) {
-						return create_point(pt);
-					});
-					return lp;
-				});
-				set_point_inside(p, p2);
-
-				progress(i++ / total);
-
-				return p2;
+				return lp;
 			});
-		}
+			set_point_inside(p, p2);
+
+			if (progress) {
+				progress(i++ / total);
+			}
+
+			return p2;
+		});
 
 		return true;
 	}
@@ -336,30 +343,95 @@ public:
 	std::vector<int> get_face_pairs() {
 		std::vector<int> ps;
 		ps.reserve(arr.number_of_edges() * 2);
-		for (auto it = arr.edges_begin(); it != arr.edges_end(); ++it) {
-			size_t a = std::distance(arr.faces_begin(), it->face());
-			size_t b = std::distance(arr.faces_begin(), it->twin()->face());
-			ps.push_back(a);
-			ps.push_back(b);
+		size_t n = 0;
+
+		std::map<Face_handle, size_t> face_to_bounded_index;
+		for (auto it = arr.faces_begin(); it != arr.faces_end(); ++it) {
+			if (!it->is_unbounded()) {
+				face_to_bounded_index[it] = face_to_bounded_index.size();
+			}
+		}
+
+		for (auto it = arr.edges_begin(); it != arr.edges_end(); ++it, ++n) {
+			auto v0 = it->source()->point();
+			double v0x = CGAL::to_double(v0.cartesian(0));
+			double v0y = CGAL::to_double(v0.cartesian(1));
+			auto v1 = it->target()->point();
+			double v1x = CGAL::to_double(v1.cartesian(0));
+			double v1y = CGAL::to_double(v1.cartesian(1));
+			double l = std::sqrt((v1x - v0x) * (v1x - v0x) + (v1y - v0y) * (v1y - v0y));
+			// std::cout << n << " l " << l << std::endl;
+			bool emitted = false;
+			if (l > 1.) {
+				// std::cout << std::to_string(n) << " " << v0x << " " << v0y << std::endl;
+				// std::cout << std::string(std::to_string(n).size(), ' ') << " " << v1x << " " << v1y << std::endl;
+
+				auto afit = face_to_bounded_index.find(it->face());
+				auto bfit = face_to_bounded_index.find(it->twin()->face());
+
+				if (afit != face_to_bounded_index.end() && bfit != face_to_bounded_index.end()) {
+					ps.push_back(afit->second);
+					ps.push_back(bfit->second);
+					emitted = true;
+				}
+			}
+			
+			if (!emitted) {
+				ps.push_back(-1);
+				ps.push_back(-1);
+			}
 		}
 		return ps;
 	}
 
-	void merge() {
-		for (auto it = arr.edges_begin(); it != arr.edges_end(); ++it) {
-			size_t a = std::distance(arr.faces_begin(), it->face());
-			size_t b = std::distance(arr.faces_begin(), it->twin()->face());
+	void merge(const std::vector<int>& edge_indices) {
+		if (edge_indices.empty()) {
+			return;
 		}
+
+		std::list<Halfedge_handle> to_remove;
+		auto eit = edge_indices.begin();
+		size_t n = 0;
+		for (auto it = arr.edges_begin(); it != arr.edges_end(); ++it, ++n) {
+			if (n == *eit) {
+				++eit;
+				to_remove.push_back(it);
+				if (eit == edge_indices.end()) {
+					break;
+				}
+			}
+		}
+		
+		for (auto& h : to_remove) {
+			/*
+			auto v0 = h->source()->point();
+			std::cout << CGAL::to_double(v0.cartesian(0)) << " " << CGAL::to_double(v0.cartesian(1)) << std::endl;
+			auto v1 = h->target()->point();
+			std::cout << CGAL::to_double(v1.cartesian(0)) << " " << CGAL::to_double(v1.cartesian(1)) << std::endl << std::endl;
+			*/
+			arr.remove_edge(h);
+		}
+	}
+
+	size_t num_edges() {
+		return arr.number_of_edges();
+	}
+
+	size_t num_faces() {
+		return arr.number_of_faces();
 	}
 };
 
-bool svgfill::line_segments_to_polygons(solver s, double eps, const std::vector<std::vector<line_segment_2>>& segments, std::vector<std::vector<polygon_2>>& polygons, std::function<void(float)>& progress)
+bool svgfill::line_segments_to_polygons(solver s, double eps, const std::vector<std::vector<line_segment_2>>& segment_groups, std::vector<std::vector<polygon_2>>& polygons, std::function<void(float)>& progress)
 {
-	context ctx(s, eps, progress);
-	ctx.add(segments);
-	auto b = ctx.build();
-	if (b) {
-		ctx.write(polygons);
+	bool b = false;
+	for (auto& segments : segment_groups) {
+		context ctx(s, eps, progress);
+		ctx.add(segments);
+		if (ctx.build()) {
+			ctx.write(polygons);
+			b = true;
+		}
 	}
 	return b;
 }
@@ -425,7 +497,7 @@ std::string svgfill::polygons_to_svg(const std::vector<std::vector<polygon_2>>& 
 	return oss.str();
 }
 
-void svgfill::context::add(const std::vector<std::vector<line_segment_2>>& segments) {
+void svgfill::context::add(const std::vector<line_segment_2>& segments) {
 	segments_.insert(segments_.end(), segments.begin(), segments.end());
 }
 
@@ -441,13 +513,15 @@ bool svgfill::context::build() {
 	} else if (solver_ == EXACT_CONSTRUCTIONS) {
 		arr_ = new cgal_arrangement<CGAL::Epeck>;
 	}
-	return (*arr_)(eps_, segments_, polygons_, progress_);
+	return (*arr_)(eps_, segments_, progress_);
 }
 
-void svgfill::context::merge() {
-	arr_->merge();
+void svgfill::context::merge(const std::vector<int>& edge_indices) {
+	arr_->merge(edge_indices);
 }
 
 void svgfill::context::write(std::vector<std::vector<polygon_2>>& p) {
-	p = polygons_;
+	std::vector<polygon_2> polygons;
+	arr_->write(polygons, progress_);
+	p.push_back(polygons);
 }

@@ -47,18 +47,21 @@ namespace svgfill {
 	class abstract_arrangement {
 	public:
 		virtual ~abstract_arrangement() {}
-		virtual bool operator()(double eps, const std::vector<std::vector<svgfill::line_segment_2>>& segments, std::vector<std::vector<svgfill::polygon_2>>& polygons, std::function<void(float)>& progress) = 0;
-		virtual void merge() = 0;
+		virtual bool operator()(double eps, const std::vector<svgfill::line_segment_2>& segments, std::function<void(float)>& progress) = 0;
+		virtual bool write(std::vector<svgfill::polygon_2>& polygons, std::function<void(float)>& progress) = 0;
+		virtual void merge(const std::vector<int>& edge_indices) = 0;
 		virtual std::vector<int> get_face_pairs() = 0;
+		virtual size_t num_edges() = 0;
+		virtual size_t num_faces() = 0;
 	};
 
 	class context {
 	private:
 		solver solver_;
 		double eps_;
-		std::vector<std::vector<line_segment_2>> segments_;
+		std::vector<line_segment_2> segments_;
 		std::function<void(float)> progress_;
-		std::vector<std::vector<polygon_2>> polygons_;
+		// std::vector<polygon_2> polygons_;
 		abstract_arrangement* arr_;
 
 	public:
@@ -75,13 +78,15 @@ namespace svgfill {
 			, arr_(nullptr)
 		{}
 
-		void add(const std::vector<std::vector<line_segment_2>>& segments);
+		void add(const std::vector<line_segment_2>& segments);
 		bool build();
 		std::vector<int> get_face_pairs() {
 			return arr_->get_face_pairs();
 		}
-		void merge();
+		void merge(const std::vector<int>& edge_indices);
 		void write(std::vector<std::vector<polygon_2>>&);
+		size_t num_edges() { return arr_->num_edges(); }
+		size_t num_faces() { return arr_->num_faces(); }
 
 		~context() {
 			delete arr_;
