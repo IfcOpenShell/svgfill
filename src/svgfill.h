@@ -21,6 +21,20 @@
 #ifndef SVGFILL_H
 #define SVGFILL_H
 
+#ifdef IFC_SHARED_BUILD
+#ifdef _WIN32
+#ifdef libsvgfill_EXPORTS
+#define SVGFILL_API __declspec(dllexport)
+#else
+#define SVGFILL_API __declspec(dllimport)
+#endif
+#else // simply assume *nix + GCC-like compiler
+#define SVGFILL_API __attribute__((visibility("default")))
+#endif
+#else
+#define SVGFILL_API
+#endif
+
 #include <boost/optional.hpp>
 
 #include <array>
@@ -93,10 +107,10 @@ namespace svgfill {
 		}
 	};
 
-	bool svg_to_line_segments(const std::string& data, const boost::optional<std::string>& class_name, std::vector<std::vector<line_segment_2>>& segments);
-	bool line_segments_to_polygons(solver s, double eps, const std::vector<std::vector<line_segment_2>>& segments, std::vector<std::vector<polygon_2>>& polygons);
-	bool line_segments_to_polygons(solver s, double eps, const std::vector<std::vector<line_segment_2>>& segments, std::vector<std::vector<polygon_2>>& polygons, std::function<void(float)>& progress);
-	std::string polygons_to_svg(const std::vector<std::vector<polygon_2>>& polygons, bool random_color=false);
+	SVGFILL_API bool svg_to_line_segments(const std::string& data, const boost::optional<std::string>& class_name, std::vector<std::vector<line_segment_2>>& segments);
+	SVGFILL_API bool line_segments_to_polygons(solver s, double eps, const std::vector<std::vector<line_segment_2>>& segments, std::vector<std::vector<polygon_2>>& polygons);
+	SVGFILL_API bool line_segments_to_polygons(solver s, double eps, const std::vector<std::vector<line_segment_2>>& segments, std::vector<std::vector<polygon_2>>& polygons, std::function<void(float)>& progress);
+	SVGFILL_API std::string polygons_to_svg(const std::vector<std::vector<polygon_2>>& polygons, bool random_color=false);
 }
 
 #endif
