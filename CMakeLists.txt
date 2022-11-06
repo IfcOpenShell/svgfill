@@ -21,6 +21,11 @@ if(NOT "${CGAL_LIBRARY_DIR}" STREQUAL "")
 	message(STATUS "Looking for CGAL library files in: ${CGAL_LIBRARY_DIR}")
 endif()
 
+if(BOOST_NO_SYSROOT)
+    set(CMAKE_FIND_ROOT_PATH_BACKUP "${CMAKE_FIND_ROOT_PATH}")
+    set(CMAKE_FIND_ROOT_PATH "")
+endif()
+
 find_library(libCGAL NAMES CGAL PATHS ${CGAL_LIBRARY_DIR} NO_DEFAULT_PATH)
 
 if(libCGAL)
@@ -77,6 +82,12 @@ endif()
 
 find_package(Boost)
 message(STATUS "Boost include files found in ${Boost_INCLUDE_DIRS}")
+
+if(BOOST_NO_SYSROOT)
+    set(CMAKE_FIND_ROOT_PATH "${CMAKE_FIND_ROOT_PATH_BACKUP}")
+endif()
+
+
 
 include_directories(${Boost_INCLUDE_DIRS} ${LIBXML2_INCLUDE_DIR}
 	${CGAL_INCLUDE_DIR} ${GMP_INCLUDE_DIR} ${MPFR_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/svgpp/include
