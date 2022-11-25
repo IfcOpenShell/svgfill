@@ -21,7 +21,7 @@ if(NOT "${CGAL_LIBRARY_DIR}" STREQUAL "")
 	message(STATUS "Looking for CGAL library files in: ${CGAL_LIBRARY_DIR}")
 endif()
 
-if(BOOST_NO_SYSROOT)
+if(WASM_BUILD)
     set(CMAKE_FIND_ROOT_PATH_BACKUP "${CMAKE_FIND_ROOT_PATH}")
     set(CMAKE_FIND_ROOT_PATH "")
 endif()
@@ -83,7 +83,7 @@ endif()
 find_package(Boost)
 message(STATUS "Boost include files found in ${Boost_INCLUDE_DIRS}")
 
-if(BOOST_NO_SYSROOT)
+if(WASM_BUILD)
     set(CMAKE_FIND_ROOT_PATH "${CMAKE_FIND_ROOT_PATH_BACKUP}")
 endif()
 
