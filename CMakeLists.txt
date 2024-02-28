@@ -5,6 +5,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 project (svgfill)
 
+cmake_policy(SET CMP0074 NEW) # find_package() uses <PackageName>_ROOT variables.
+if (POLICY CMP0144)
+cmake_policy(SET CMP0144 NEW) # find_package() uses upper-case <PACKAGENAME>_ROOT variables.
+endif()
+
 set(CGAL_LIBRARY_NAMES libCGAL_Core libCGAL_ImageIO libCGAL)
 
 if("${CGAL_INCLUDE_DIR}" STREQUAL "")
