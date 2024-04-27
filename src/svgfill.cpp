@@ -119,7 +119,9 @@ public:
 		tag::coordinate::absolute) {}
 
 	void path_close_subpath() {
-		segments.back().push_back({ xy_, start_ });
+		if (enabled_at_ != -1) {
+			segments.back().push_back({ xy_, start_ });
+		}
 	}
 
 	void path_exit() {}
