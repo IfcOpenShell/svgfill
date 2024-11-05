@@ -78,7 +78,7 @@ public:
 
 	template<class Str>
 	void set(tag::attribute::class_, Str const & s) {
-		if (enabled_at_ == -1 && (class_name.is_initialized() && s == *class_name)) {
+		if (enabled_at_ == -1 && class_name.is_initialized() && std::string(s.begin(), s.size()).find(*class_name) != std::string::npos) {
 			enabled_at_ = depth_;
 			segments.emplace_back();
 		}
@@ -187,6 +187,35 @@ bool svgfill::line_segments_to_polygons(solver s, double eps, const std::vector<
 	return line_segments_to_polygons(s, eps, segments, polygons, fn);
 }
 
+bool svgfill::svg_to_polygons(const std::string& data, const boost::optional<std::string>& class_name, std::vector<polygon_2>& polygons) {
+	Context context;
+	context.class_name = class_name;
+	xmlDoc* doc = xmlReadMemory(data.c_str(), data.size(), nullptr, nullptr, 0);
+	xmlNode* elem = xmlDocGetRootElement(doc);
+
+	try {
+		document_traversal<
+			processed_elements<processed_elements_t>,
+			processed_attributes<processed_attributes_t>
+		>::load_document(elem, context);
+	} catch (std::exception& e) {
+		std::cerr << e.what() << std::endl;
+		return false;
+	}
+	std::function<void(float)> fn = [](float f) {};
+	std::vector<std::vector<polygon_2>> ps;
+	if (!line_segments_to_polygons(svgfill::EXACT_PREDICATES, 0., context.segments, ps, fn)) {
+		return false;
+	}
+	if (ps.empty()) {
+		return false;
+	}
+	for (auto& p : ps) {
+		polygons.insert(polygons.end(), p.begin(), p.end());
+	}
+	return true;
+}
+
 template <typename Kernel>
 class cgal_arrangement : public svgfill::abstract_arrangement {
 	typedef CGAL::Arr_segment_traits_2<Kernel> Traits_2;
@@ -205,7 +234,9 @@ class cgal_arrangement : public svgfill::abstract_arrangement {
 		Polygon_2 poly;
 		auto curr = circ;
 		do {
-			poly.push_back(curr->source()->point());
+			if (poly.size() == 0 || (*(poly.end() - 1)) != curr->source()->point()) {
+				poly.push_back(curr->source()->point());
+			}
 		} while (++curr != circ);
 		return poly;
 	}
@@ -241,6 +272,13 @@ class cgal_arrangement : public svgfill::abstract_arrangement {
 
 	void set_point_inside(const Polygon_wh_2& inpoly, svgfill::polygon_2& outpoly)
 	{
+		/*
+		std::cout << std::endl;
+		for (auto& p : inpoly.outer_boundary()) {
+			std::cout << " " << p;
+		}
+		std::cout << std::endl;
+		*/
 		// create Delaunay triangulation and return the centroid of the largest triangle.
 		CGAL::Polygon_triangulation_decomposition_2<Kernel> decompositor;
 		std::list<Polygon_2> decom_polies;
@@ -248,15 +286,17 @@ class cgal_arrangement : public svgfill::abstract_arrangement {
 		decom_polies.sort([](const Polygon_2& a, const Polygon_2& b) {
 			return a.area() > b.area();
 		});
-		const Polygon_2& largest = decom_polies.front();
-		auto triangle = poly_to_triangle(largest);
-		/*
-		for (auto& p : decom_polies) {
-			std::cout << "a " << CGAL::to_double(poly_to_triangle(largest).area()) << std::endl;
+		if (!decom_polies.empty()) {
+			const Polygon_2& largest = decom_polies.front();
+			auto triangle = poly_to_triangle(largest);
+			/*
+			for (auto& p : decom_polies) {
+				std::cout << "a " << CGAL::to_double(poly_to_triangle(largest).area()) << std::endl;
+			}
+			std::cout << "triangle area " << CGAL::to_double(triangle.area()) << std::endl;
+			*/
+			outpoly.point_inside = create_point(CGAL::centroid(triangle));
 		}
-		std::cout << "triangle area " << CGAL::to_double(triangle.area()) << std::endl;
-		*/
-		outpoly.point_inside = create_point(CGAL::centroid(triangle));
 	}
 
 	Arrangement_2 arr;
@@ -270,12 +310,17 @@ public:
 		for (auto& l : segments) {
 			Point_2 a(l[0][0], l[0][1]);
 			Point_2 b(l[1][0], l[1][1]);
-			auto ab = b - a;
-			ab /= std::sqrt(CGAL::to_double(ab.squared_length()));
-			// This appears to work better generally, slightly nudge the
-			// end points to make sure segments intersect.
-			a -= ab * eps;
-			b += ab * eps;
+			if (a == b) {
+				continue;
+			}
+			if (eps != 0.) {
+				auto ab = b - a;
+				ab /= std::sqrt(CGAL::to_double(ab.squared_length()));
+				// This appears to work better generally, slightly nudge the
+				// end points to make sure segments intersect.
+				a -= ab * eps;
+				b += ab * eps;
+			}
 			Segment_2 seg(a, b);
 			CGAL::insert(arr, seg);
 
@@ -285,6 +330,34 @@ public:
 		}
 
 		return true;
+	}
+
+	void remove_duplicates(svgfill::loop_2& l) {
+		auto norm2 = [](auto& a, auto& b) {
+			auto dx = a[0] - b[0];
+			auto dy = a[1] - b[1];
+			return std::sqrt(dx * dx + dy * dy);
+		};
+
+		while (l.size() > 1 && l.front() == l.back()) {
+			l.pop_back();
+		}
+
+		if (l.size() > 1) {
+			auto it = l.begin();
+			auto next_it = std::next(it);
+
+			while (next_it != l.end()) {
+				if (norm2(*it, *next_it) < 1.e-8) {
+					next_it = l.erase(next_it);
+					// 'it' remains the same; 'next_it' now points to the next element
+				} else {
+					// Move both iterators forward
+					++it;
+					++next_it;
+				}
+			}
+		}
 	}
 
 	bool write(std::vector<svgfill::polygon_2>& polygons, std::function<void(float)>& progress) {
@@ -318,16 +391,40 @@ public:
 
 		polygons.reserve(ps.size());
 
+
+
 		std::transform(ps.begin(), ps.end(), std::back_inserter(polygons), [this, &progress](const Polygon_wh_2& p) {
 			svgfill::polygon_2 p2;
 			std::transform(p.outer_boundary().vertices_begin(), p.outer_boundary().vertices_end(), std::back_inserter(p2.boundary), [this](const Point_2& pt) {
 				return create_point(pt);
 			});
+
+			/*
+			static int NN = 0;
+			std::cout << NN++ << std::endl;
+			for (auto& p : p2.boundary) {
+				std::cout << std::setprecision(20) << p[0] << "," << p[1] << " ";
+			}
+			std::cout << std::endl;
+			*/
+
+			// duplicates need to be removed after conversion from epeck to double
+			remove_duplicates(p2.boundary);
+
+			/*
+			std::cout << "> " << std::endl;
+			for (auto& p : p2.boundary) {
+				std::cout << std::setprecision(20) << p[0] << "," << p[1] << " ";
+			}
+			std::cout << std::endl;
+			*/
+
 			std::transform(p.holes_begin(), p.holes_end(), std::back_inserter(p2.inner_boundaries), [this](const Polygon_2& poly) {
 				svgfill::loop_2 lp;
 				std::transform(poly.vertices_begin(), poly.vertices_end(), std::back_inserter(lp), [this](const Point_2& pt) {
 					return create_point(pt);
 				});
+				remove_duplicates(lp);
 				return lp;
 			});
 			set_point_inside(p, p2);
@@ -497,6 +594,12 @@ std::string svgfill::polygons_to_svg(const std::vector<std::vector<polygon_2>>& 
 	oss << "</svg>";
 
 	return oss.str();
+}
+
+
+std::string svgfill::polygons_to_svg(const std::vector<polygon_2>& polygons, bool random_color) {
+	std::vector<std::vector<polygon_2>> pps = { polygons };
+	return polygons_to_svg(pps, random_color);
 }
 
 void svgfill::context::add(const std::vector<line_segment_2>& segments) {

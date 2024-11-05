@@ -111,6 +111,9 @@ namespace svgfill {
 	SVGFILL_API bool line_segments_to_polygons(solver s, double eps, const std::vector<std::vector<line_segment_2>>& segments, std::vector<std::vector<polygon_2>>& polygons);
 	SVGFILL_API bool line_segments_to_polygons(solver s, double eps, const std::vector<std::vector<line_segment_2>>& segments, std::vector<std::vector<polygon_2>>& polygons, std::function<void(float)>& progress);
 	SVGFILL_API std::string polygons_to_svg(const std::vector<std::vector<polygon_2>>& polygons, bool random_color=false);
+	SVGFILL_API std::string polygons_to_svg(const std::vector<polygon_2>& polygons, bool random_color = false);
+	SVGFILL_API bool svg_to_polygons(const std::string& data, const boost::optional<std::string>& class_name, std::vector<polygon_2>& polygons);
+	SVGFILL_API bool arrange_polygons(const std::vector<polygon_2>& polygons, std::vector<polygon_2>& arranged);
 }
 
 #endif
