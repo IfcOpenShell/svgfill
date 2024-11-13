@@ -47,7 +47,12 @@ Polygon_2 convert_polygon(const CGAL::Polygon_2<K2>& poly) {
 std::vector<Polygon_2> create_and_convert_offset_polygon(double offset_distance, const Polygon_2& polygon) {
     // Create the offset polygons using Epick kernel
     // create_exterior_skeleton_and_offset_polygons_2()
-    std::vector<boost::shared_ptr<CGAL::Polygon_2<CGAL::Epick>>> offset_polygons;
+#if CGAL_VERSION_NR >= 1060000000
+#define shared_ptr std::shared_ptr
+#else
+#define shared_ptr boost::shared_ptr
+#endif
+    std::vector<shared_ptr<CGAL::Polygon_2<CGAL::Epick>>> offset_polygons;
 
     if (offset_distance >= 0.) {
         offset_polygons = CGAL::create_exterior_skeleton_and_offset_polygons_2(offset_distance, polygon);
@@ -702,7 +707,13 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
                                 CGAL::Segment_2<K> neighbouring_segment(selected, other_neighbour);
                                 auto x = CGAL::intersection(incoming, neighbouring_segment);
                                 if (x) {
-                                    if (auto* xp = boost::get<CGAL::Point_2<K>>(&*x)) {
+#if CGAL_VERSION_NR >= 1060000000
+#define variant_get std::get_if
+#else
+#define variant_get boost::get
+#endif
+
+                                    if (auto* xp = variant_get<CGAL::Point_2<K>>(&*x)) {
                                         auto dist = ((*xp) - other).squared_length();
                                         if (dist < sq_distance_along_ray) {
                                             closest_neighbouring_segment = neighbouring_segment;
