@@ -17,7 +17,7 @@
 
 #include "graph_2d.h"
 
-// #define  _DEBUG
+// #define  SVGFILL_DEBUG
 
 typedef CGAL::Exact_predicates_exact_constructions_kernel K;
 typedef CGAL::Polygon_2<K> Polygon_2;
@@ -220,7 +220,7 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
         input_polygons.emplace_back(ps.begin(), ps.end());
     }
 
-#ifdef _DEBUG
+#ifdef SVGFILL_DEBUG
     std::ofstream obj("obj.obj");
     size_t vi = 1;
 
@@ -326,7 +326,7 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
             }
         }
 
-#ifdef _DEBUG
+#ifdef SVGFILL_DEBUG
         for (auto it = fused_polies.begin(); it != fused_polies.end(); ++it) {
             write_polygon_to_obj(obj, vi, true, *it, "fused_poly_" + std::to_string(std::distance(fused_polies.begin(), it)));
             write_polygon_to_svg(svg, *it);
@@ -386,7 +386,7 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
         offset_polygons.insert(offset_polygons.end(), ps.begin(), ps.end());
     }
 
-#ifdef _DEBUG
+#ifdef SVGFILL_DEBUG
     for (auto it = offset_polygons.begin(); it != offset_polygons.end(); ++it) {
         write_polygon_to_obj(obj, vi, true, *it, "offset_poly_" + std::to_string(std::distance(offset_polygons.begin(), it)));
         write_polygon_to_svg(svg, *it);
@@ -397,7 +397,7 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
     std::vector<Polygon_with_holes_2> unioned_polygons;
     CGAL::join(offset_polygons.begin(), offset_polygons.end(), std::back_inserter(unioned_polygons));
 
-#ifdef _DEBUG
+#ifdef SVGFILL_DEBUG
     write_polygon_to_obj(obj, vi, true, unioned_polygons.front().outer_boundary(), "offset_poly_joined");
     write_polygon_to_svg(svg, unioned_polygons.front().outer_boundary());
 
@@ -410,7 +410,7 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
         -polygon_offset_distance - 1.e-8,
         unioned_polygons.front().outer_boundary());
 
-#ifdef _DEBUG
+#ifdef SVGFILL_DEBUG
     write_polygon_to_obj(obj, vi, true, inner_offset.front(), "joined_inset");
     write_polygon_to_svg(svg, inner_offset.front());
 #endif
@@ -442,7 +442,7 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
         return CGAL::to_double(p.area()) < 1.e-8;
     }), triangular_polygons.end());
 
-#ifdef _DEBUG
+#ifdef SVGFILL_DEBUG
     for (auto it = triangular_polygons.begin(); it != triangular_polygons.end(); ++it) {
         write_polygon_to_obj(obj, vi, false, *it, "tri_" + std::to_string(std::distance(triangular_polygons.begin(), it)));
         write_polygon_to_svg(svg, *it);
@@ -485,7 +485,7 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
         }
     }
 
-#ifdef _DEBUG
+#ifdef SVGFILL_DEBUG
     obj << "o network\n";
 #endif
 
@@ -501,7 +501,7 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
                 if ((it = segment_to_midpoint.find(r)) != segment_to_midpoint.end()) {
                     line_graph[p.second].push_back(it->second);
 
-#ifdef _DEBUG
+#ifdef SVGFILL_DEBUG
                     obj << "v " << CGAL::to_double(p.second.x()) << " " << CGAL::to_double(p.second.y()) << " 0\n";
                     obj << "v " << CGAL::to_double(it->second.x()) << " " << CGAL::to_double(it->second.y()) << " 0\n";
                     obj << "l " << vi++;
@@ -554,7 +554,7 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
     using SK = CGAL::Simple_cartesian<double>;
     CGAL::Cartesian_converter<K, SK> C{};
 
-#ifdef _DEBUG
+#ifdef SVGFILL_DEBUG
     obj << "o eliminated\n";
 #endif
 
@@ -622,7 +622,7 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
             eliminated_segments.insert({ t[i], t[j] });
             eliminated_segments.insert({ t[j], t[i] });
 
-#ifdef _DEBUG
+#ifdef SVGFILL_DEBUG
             obj << "v " << st[j].x() << " " << st[j].y() << " 0\n";
             obj << "v " << st[i].x() << " " << st[i].y() << " 0\n";
             obj << "l " << vi++;
@@ -641,7 +641,7 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
 
     auto G = G2.weld_vertices();
 
-#ifdef _DEBUG
+#ifdef SVGFILL_DEBUG
     obj << "o network3\n";
     for (auto it = G.edges_begin(); it != G.edges_end(); ++it) {
         obj << "v " << CGAL::to_double(it->first.x()) << " " << CGAL::to_double(it->first.y()) << " 0\n";
@@ -752,7 +752,7 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
             G.insert(s.source(), s.target());
         }
 
-#ifdef _DEBUG
+#ifdef SVGFILL_DEBUG
         obj << "o network2\n";
         for (auto it = G.edges_begin(); it != G.edges_end(); ++it) {
             obj << "v " << CGAL::to_double(it->first.x()) << " " << CGAL::to_double(it->first.y()) << " 0\n";
@@ -903,7 +903,7 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
             }
         }
 
-#ifdef _DEBUG
+#ifdef SVGFILL_DEBUG
         write_polygon_to_svg(svg, circ_to_poly(it->outer_ccb()));
 
         obj << "o " << "face_";
@@ -952,7 +952,7 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
 
     size_t remove_id = 0;
     for (auto& e : edges_to_remove) {
-#ifdef _DEBUG
+#ifdef SVGFILL_DEBUG
         obj << "o " << "remove_" << remove_id++ << "\n";
         {
             auto& p = e->source()->point();
@@ -975,7 +975,7 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
 
         output_polygons.push_back(circ_to_poly(it->outer_ccb()));
 
-#ifdef _DEBUG
+#ifdef SVGFILL_DEBUG
         write_polygon_to_svg(svg, circ_to_poly(it->outer_ccb()));
 
         obj << "o " << "merged_face_";
@@ -1019,7 +1019,7 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
 #endif
     }
 
-#ifdef _DEBUG
+#ifdef SVGFILL_DEBUG
     svg << "</svg>\n";
 #endif
 }

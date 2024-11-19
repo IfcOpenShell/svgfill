@@ -1,6 +1,10 @@
 #ifndef GRAPH_2D_H
 #define GRAPH_2D_H
 
+#ifdef SVGFILL_DEBUG
+#include <nlohmann\json.hpp>
+#endif
+
 template <typename Kernel>
 class Graph2D {
 public:
@@ -164,7 +168,7 @@ public:
     }
 
     void assert_symmetric() {
-#ifdef _DEBUG
+#ifdef SVGFILL_DEBUG
         for (auto& p : adjacency_list) {
             if (p.second.find(p.first) != p.second.end()) {
                 std::cout << "!! " << p.first << " self-edge" << std::endl;
