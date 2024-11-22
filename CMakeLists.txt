@@ -134,6 +134,16 @@ target_link_libraries(svgfill ${Boost_LIBRARIES} ${BCRYPT_LIBRARIES} ${LIBXML2_L
 add_executable(svgfill_exe src/main.cpp)
 target_link_libraries(svgfill_exe svgfill)
 set_property(TARGET svgfill_exe PROPERTY OUTPUT_NAME svgfill)
+if(WIN32)
+	# both the library and the executable now result in a file with basename svgfill,
+	# on linux the the library is prefixed with lib as libsvgfill.a. Windows does not
+	# have this mechanism, so on windows the linker would be created an import library
+	# for the executable, also named svgfill.lib. This naming conflict results in:
+	#     LINK : fatal error LNK1149: output filename matches input filename
+	# This flag tells the linker not to generate an import library and therefore no
+	# conflict occurs.
+    target_link_options(svgfill_exe PRIVATE "/NOIMPLIB")
+endif()
 
 install(TARGETS svgfill_exe DESTINATION ${BINDIR})
 install(TARGETS svgfill DESTINATION ${LIBDIR})
