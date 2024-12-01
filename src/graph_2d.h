@@ -169,6 +169,7 @@ public:
 
     void assert_symmetric() {
 #ifdef SVGFILL_DEBUG
+#if 0
         for (auto& p : adjacency_list) {
             if (p.second.find(p.first) != p.second.end()) {
                 std::cout << "!! " << p.first << " self-edge" << std::endl;
@@ -220,6 +221,7 @@ public:
         static int fff = 0;
         std::ofstream file("graph_" + std::to_string(fff++) + ".json");
         file << json_obj.dump(2);
+#endif
 #endif
     }
 

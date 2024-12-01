@@ -1,4 +1,9 @@
+﻿#define SVGFILL_DEBUG
+// #define SVGFILL_MAIN
+
+#ifndef SVGFILL_MAIN
 #include "svgfill.h"
+#endif
 
 #include <CGAL/Exact_predicates_exact_constructions_kernel.h>
 #include <CGAL/Boolean_set_operations_2.h>
@@ -16,8 +21,6 @@
 #include <iostream>
 
 #include "graph_2d.h"
-
-// #define  SVGFILL_DEBUG
 
 typedef CGAL::Exact_predicates_exact_constructions_kernel K;
 typedef CGAL::Polygon_2<K> Polygon_2;
@@ -149,6 +152,30 @@ Polygon_2 fuse_with_offset(const std::vector<Polygon_2>& polygons, double polygo
         auto ps = create_and_convert_offset_polygon(polygon_offset_distance, R);
         for (auto& p : ps) {
             if (!p.is_simple()) {
+                {
+                    std::cerr << "[";
+                    bool first = true;
+                    for (auto& pp : r) {
+                        if (!first) {
+                            std::cerr << ",";
+                        }
+                        first = false;
+                        std::cerr << "(" << pp.x() << "," << pp.y() << ")";
+                    }
+                    std::cerr << "]" << std::endl;
+                }
+                {
+                    std::cerr << "[";
+                    bool first = true;
+                    for (auto& pp : p) {
+                        if (!first) {
+                            std::cerr << ",";
+                        }
+                        first = false;
+                        std::cerr << "(" << pp.x() << "," << pp.y() << ")";
+                    }
+                    std::cerr << "]" << std::endl;
+                }
                 throw std::runtime_error("Complex polygon originated from offset");
             }
         }
@@ -202,11 +229,11 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
         size_t num_edges = 0;
         for (auto& p : input_polygons_) {
             for (auto it = p.edges_begin(); it != p.edges_end(); ++it) {
-                total_edge_length += CGAL::to_double(CGAL::squared_distance(it->start(), it->end()));
+                total_edge_length += std::sqrt(CGAL::to_double(CGAL::squared_distance(it->start(), it->end())));
                 num_edges += 1;
             }
         }
-        polygon_offset_distance = total_edge_length / num_edges / 10.;
+        polygon_offset_distance = total_edge_length / num_edges;
     }
 
     auto input_polygons__ = input_polygons_;
@@ -339,10 +366,14 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
     auto input_polygon_boundary = [&input_polygons](const CGAL::Point_2<K>& p, double tol = 1.e-8) {
         // unfortunately some imprecision slept into the code so we can't
         // so we can't just use has_on_boundary() anymore
+        double D = std::numeric_limits<double>::infinity();
         for (auto it = input_polygons.begin(); it != input_polygons.end(); ++it) {
             for (auto jt = it->edges_begin(); jt != it->edges_end(); ++jt) {
                 const auto& seg = *jt;
                 auto d = std::sqrt(CGAL::to_double(CGAL::squared_distance(seg, p)));
+                if (d < D) {
+                    D = d;
+                }
                 if (d < tol) {
                     return it;
                 }
@@ -354,6 +385,7 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
     auto close_input_point = [&input_polygons](const CGAL::Point_2<K>& P) {
         CGAL::Point_2<K> closest;
         double closest_distance = std::numeric_limits<double>::infinity();
+        auto input_it = input_polygons.end();
 
         // unfortunately some imprecision slept into the code so we can't
         // so we can't just use has_on_boundary() anymore
@@ -363,11 +395,34 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
                 if (d < closest_distance) {
                     closest_distance = d;
                     closest = p;
+                    input_it = it;
                 }
             }
         }
 
-        return closest;
+        return std::make_pair(input_it, closest);
+    };
+
+    auto project_input_point = [&input_polygons](const CGAL::Point_2<K>& P) {
+        CGAL::Point_2<K> closest;
+        typename K::FT closest_sq_distance = std::numeric_limits<double>::infinity();
+        auto input_it = input_polygons.end();
+
+        // unfortunately some imprecision slept into the code so we can't
+        // so we can't just use has_on_boundary() anymore
+        for (auto it = input_polygons.begin(); it != input_polygons.end(); ++it) {
+            for (auto jt = it->edges_begin(); jt != it->edges_end(); ++jt) {
+                auto Pp = jt->supporting_line().projection(P);
+                auto d = CGAL::squared_distance(Pp, P);
+                if (d < closest_sq_distance) {
+                    closest_sq_distance = d;
+                    closest = Pp;
+                    input_it = it;
+                }
+            }
+        }
+
+        return std::make_pair(input_it, closest);
     };
 
     // Find the outer perimeter using offset - union - negative offset
@@ -377,9 +432,36 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
         if (!R.is_counterclockwise_oriented()) {
             R.reverse_orientation();
         }
+
         auto ps = create_and_convert_offset_polygon(polygon_offset_distance, R);
         for (auto& p : ps) {
             if (!p.is_simple()) {
+                {
+                    std::cerr << "input [";
+                    bool first = true;
+                    for (auto& pp : r) {
+                        if (!first) {
+                            std::cerr << ",";
+                        }
+                        first = false;
+                        std::cerr << "(" << pp.x() << "," << pp.y() << ")";
+                    }
+                    std::cerr << "]" << std::endl;
+                }
+
+                {
+                    std::cerr << "[";
+                    bool first = true;
+                    for (auto& pp : p) {
+                        if (!first) {
+                            std::cerr << ",";
+                        }
+                        first = false;
+                        std::cerr << "(" << pp.x() << "," << pp.y() << ")";
+                    }
+                    std::cerr << "]" << std::endl;
+                }
+
                 throw std::runtime_error("Complex polygon originated from offset");
             }
         }
@@ -403,20 +485,72 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
 
 #endif
 
+    Polygon_2 fused_removed_close_points;
+    {
+        std::vector<CGAL::Point_2<K>> ps;
+        auto& p = unioned_polygons.front().outer_boundary();
+        ps.reserve(p.size());
+        auto I = p.begin();
+        auto J = I + 1;
+        for (;; ++J) {
+            bool last = false;
+            if (J == p.end()) {
+                J = p.begin();
+                last = true;
+            }
+            // if (CGAL::squared_distance(*I, *J) > (polygon_offset_distance * polygon_offset_distance)) {
+            if (CGAL::squared_distance(*I, *J) > (1.e-4 * 1.e-4)) {
+                ps.push_back(*J);
+                I = J;
+            }
+            if (last) {
+                break;
+            }
+        }
+        fused_removed_close_points = Polygon_2(ps.begin(), ps.end());
+    }
+
     // Apply negative offset to get the outer perimeter polygon
     auto inner_offset = create_and_convert_offset_polygon(
         // Because polygon_offset is inexact, make sure our inset distance is slightly larger
         // std::nexttoward(-polygon_offset_distance, -std::numeric_limits<double>::infinity()),
-        -polygon_offset_distance - 1.e-8,
-        unioned_polygons.front().outer_boundary());
+        
+        // 1.e-8 even was too large and still resulted in slivers of triangle around the perimeter  
+        -polygon_offset_distance - 1.e-5,
+        fused_removed_close_points);
 
 #ifdef SVGFILL_DEBUG
     write_polygon_to_obj(obj, vi, true, inner_offset.front(), "joined_inset");
     write_polygon_to_svg(svg, inner_offset.front());
 #endif
 
+    // there is non-insignificant chance that around the outer boundary, vertices are located in
+    // between of the input polyhedra, but intermediate vertices result in triangles that will no longer
+    // span between the two spaces with two edges and therefore cause the topological centre line
+    // to no run up to the center. Eliminate all vertices that are not on the polyhedral boundary of polygon.
+
+    // this theory proved to be false. once we have topological end points in our graph that are
+    // connected to input polyhedra to form closed cells, we move those topological end points to
+    // the average of the input polyhedra corner points, thus effectively also moving them outwards.
+    {
+        for (auto& i : inner_offset) {
+            std::vector<CGAL::Point_2<K>> ps;
+            for (auto& p : i) {
+                if (input_polygon_boundary(p, 1.e-3) != input_polygons.end()) {
+                    ps.push_back(p);
+                }
+            }
+            i = Polygon_2(ps.begin(), ps.end());
+        }
+    }
+
+#ifdef SVGFILL_DEBUG
+    write_polygon_to_obj(obj, vi, true, inner_offset.front(), "joined_inset_cleaned");
+    write_polygon_to_svg(svg, inner_offset.front());
+#endif
+
     // Subtract original polygons from outer perimeter
-    std::vector<Polygon_with_holes_2> difference_result;
+    std::vector<Polygon_with_holes_2> difference_result, difference_result_subdivided;
     for (auto& i : inner_offset) {
         std::vector<Polygon_with_holes_2> working_copy;
         working_copy.emplace_back(i);
@@ -431,9 +565,52 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
         difference_result.insert(difference_result.end(), working_copy.begin(), working_copy.end());
     }
 
+    // subdivide difference_result to have better behave triangulation
+
+    {
+        const double max_distance = polygon_offset_distance / 8.;
+        auto subdivide_polygon = [max_distance](const Polygon_2& p) {
+            std::vector<Point_2> points;
+            for (auto it = p.edges_begin(); it != p.edges_end(); ++it) {
+                const auto& seg = *it;
+                auto num_splits = (int)std::ceil(std::sqrt(CGAL::to_double(seg.squared_length())) / max_distance) - 1;
+                points.push_back(seg.source());
+                for (auto i = 0; i < num_splits; ++i) {
+                    auto d = (seg.target() - seg.source()) / (num_splits + 1) * (i + 1);
+                    points.push_back(seg.source() + d);
+                }
+            }
+            return Polygon_2(points.begin(), points.end());
+        };
+
+        for (auto& pwh : difference_result) {
+            // Subdivide outer boundary
+            Polygon_2 outer = subdivide_polygon(pwh.outer_boundary());
+            // Subdivide holes
+            std::vector<Polygon_2> holes;
+            for (auto hit = pwh.holes_begin(); hit != pwh.holes_end(); ++hit) {
+                holes.push_back(subdivide_polygon(*hit));
+            }
+            // Construct new Polygon_with_holes_2
+            difference_result_subdivided.push_back(Polygon_with_holes_2(outer, holes.begin(), holes.end()));
+        }
+    }
+
+#ifdef SVGFILL_DEBUG
+    for (auto it = difference_result_subdivided.begin(); it != difference_result_subdivided.end(); ++it) {
+        auto i = std::distance(difference_result_subdivided.begin(), it);
+        write_polygon_to_obj(obj, vi, true, it->outer_boundary(), "difference_result_subdivided_" + std::to_string(i));
+        write_polygon_to_svg(svg, it->outer_boundary());
+        for (auto& p : it->holes()) {
+            write_polygon_to_obj(obj, vi, true, p, "difference_result_subdivided_" + std::to_string(i));
+            write_polygon_to_svg(svg, p);
+        }
+    }
+#endif
+
     std::list<CGAL::Polygon_2<K>> triangular_polygons;
 
-    for (auto& pwh : difference_result) {
+    for (auto& pwh : difference_result_subdivided) {
         CGAL::Polygon_triangulation_decomposition_2<K> decompositor;
         decompositor(pwh, std::back_inserter(triangular_polygons));
     }
@@ -486,7 +663,7 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
     }
 
 #ifdef SVGFILL_DEBUG
-    obj << "o network\n";
+    obj << "o network_1\n";
 #endif
 
     // Observe corridor mesh topology to join edge midpoints into a network
@@ -642,7 +819,7 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
     auto G = G2.weld_vertices();
 
 #ifdef SVGFILL_DEBUG
-    obj << "o network3\n";
+    obj << "o network_2\n";
     for (auto it = G.edges_begin(); it != G.edges_end(); ++it) {
         obj << "v " << CGAL::to_double(it->first.x()) << " " << CGAL::to_double(it->first.y()) << " 0\n";
         obj << "v " << CGAL::to_double(it->second.x()) << " " << CGAL::to_double(it->second.y()) << " 0\n";
@@ -684,6 +861,7 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
 
         for (auto vit = G.vertices_begin(); vit != G.vertices_end(); ++vit) {
             auto& selected = vit->first;
+
             if (vit->second.size() >= 3) {
                 for (auto vjt = vit->second.begin(); vjt != vit->second.end(); ++vjt) {
                     auto& neighbour = *vjt;
@@ -694,6 +872,10 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
                             vkt++;
                         }
                         auto& other = *vkt;
+
+                        if ((other - neighbour).squared_length() < (neighbour - selected).squared_length()) {
+                            continue;
+                        }
 
                         auto incoming = CGAL::Ray_2<K>(other, neighbour - other);
 
@@ -742,9 +924,7 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
         }
 
         for (auto& s : edges_to_remove) {
-            if (!G.remove_edge(s.source(), s.target())) {
-                throw std::runtime_error("Internal error");
-            }
+            G.remove_edge(s.source(), s.target());
         }
 
 
@@ -753,7 +933,7 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
         }
 
 #ifdef SVGFILL_DEBUG
-        obj << "o network2\n";
+        obj << "o network_3\n";
         for (auto it = G.edges_begin(); it != G.edges_end(); ++it) {
             obj << "v " << CGAL::to_double(it->first.x()) << " " << CGAL::to_double(it->first.y()) << " 0\n";
             obj << "v " << CGAL::to_double(it->second.x()) << " " << CGAL::to_double(it->second.y()) << " 0\n";
@@ -761,15 +941,6 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
             obj << " " << vi++ << "\n";
         }
 #endif
-        /*
-        for (auto it = G.vertices_begin(); it != G.vertices_end(); ++it) {
-            for (auto& n : it->second) {
-                if (std::find(G.find(n)->second.begin(), G.find(n)->second.end(), it->first) == G.find(n)->second.end()) {
-                    throw std::runtime_error("errirorur");
-                }
-            }
-        }
-        */
     }
 
     // Now plot the edges on an arrangement in order to find planar cycles
@@ -781,40 +952,85 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
         CGAL::insert(arr, Segment_2(it->first, it->second));
     }
 
+    std::list<std::pair<Point_2, Point_2>> move_ops;
+    std::list<std::pair<Point_2, Point_2>> edge_ops;
+
     for (auto it = G.vertices_begin(); it != G.vertices_end(); ++it) {
         if (it->second.size() == 1) {
-            auto& q = midpoint_to_segment[it->first];
-            CGAL::insert(arr, Segment_2(it->first, close_input_point(q.first)));
-            CGAL::insert(arr, Segment_2(it->first, close_input_point(q.second)));
-        }
-    }
+            auto& M = it->first;
+            auto& q = midpoint_to_segment[M];
 
-    /*
-    // Plot the corridor network
-    for (auto& p : line_graph) {
-        for (auto& q : p.second) {
-            if (p.first != q) {
-                // Skip eliminated triangle edges
-                if (eliminated_segments.find({ p.first, q }) == eliminated_segments.end()) {
-                    CGAL::insert(arr, Segment_2(p.first, q));
-                }
+            // distance from unioned - shoot ray?
+
+            // for now we choose to map point to the midpoint of the found two close points.
+
+            auto pq = close_input_point(q.first);
+            auto pr = close_input_point(q.second);
+
+            auto Q = pq.second;
+            auto R = pr.second;
+
+            if (Q == R) {
+                // this can happen in situations like this:
+                // where Q and R are co-located, because the point R' is further away
+                // in that case M + M-Q should gives is x that we then project onto the
+                // input boundary
+                // 
+                // 
+                // ┌───────┐                
+                // │       │                
+                // │       │                
+                // │       │                
+                // └───────o   <--Q,R                
+                //                          
+                // ────────o   <--M             
+                //                          
+                // ┌───────x───────────────o  <---R'
+                // │                       │
+                // │                       │
+                // │                       │
+                // │                       │
+                // └───────────────────────┘
+
+                // @todo is this projection actually necessary or is it already 'exact enough'?
+                R = project_input_point(M + (M - Q)).second;
             }
-        }
 
-        // At the caps of the corridor we also need to connect to the
-        // original geometry in order to topologically close the corridor
-        // geometry.
-        if (p.second.size() == 1) {
-            auto& q = midpoint_to_segment[p.first];
-            CGAL::insert(arr, Segment_2(p.first, close_input_point(q.first)));
-            CGAL::insert(arr, Segment_2(p.first, close_input_point(q.second)));
-            // @todo snap not to triangle edges, because neighbouring tris could
-            // have been removed, rather find closed input vertex.
-            std::cout << p.first << "--" << q.first << std::endl;
-            std::cout << p.first << "--" << q.second << std::endl;
+            auto avg = CGAL::ORIGIN + ((Q - CGAL::ORIGIN) + (R - CGAL::ORIGIN)) / 2;
+
+            move_ops.push_front({ M, avg });
+            edge_ops.push_front({ avg, Q });
+            edge_ops.push_front({ avg, R });
         }
     }
-    */
+
+#ifdef SVGFILL_DEBUG
+    obj << "o network_4\n";
+#endif
+
+    // note that we actually don't move but draw an edge
+    for (auto& pq : move_ops) {
+        CGAL::insert(arr, Segment_2(pq.first, pq.second));
+
+#ifdef SVGFILL_DEBUG
+        obj << "v " << CGAL::to_double(pq.first.x()) << " " << CGAL::to_double(pq.first.y()) << " 0\n";
+        obj << "v " << CGAL::to_double(pq.second.x()) << " " << CGAL::to_double(pq.second.y()) << " 0\n";
+        obj << "l " << vi++;
+        obj << " " << vi++ << "\n";
+#endif
+    }
+
+
+    for (auto& pq : edge_ops) {
+        CGAL::insert(arr, Segment_2(pq.first, pq.second));
+
+#ifdef SVGFILL_DEBUG
+        obj << "v " << CGAL::to_double(pq.first.x()) << " " << CGAL::to_double(pq.first.y()) << " 0\n";
+        obj << "v " << CGAL::to_double(pq.second.x()) << " " << CGAL::to_double(pq.second.y()) << " 0\n";
+        obj << "l " << vi++;
+        obj << " " << vi++ << "\n";
+#endif
+    }
 
     // Plot input polygons
     for (auto& poly : input_polygons) {
@@ -838,7 +1054,7 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
     // case the edges need to be eliminated that correspond to original geometry.
 
     size_t face_id = 0;
-    std::list<Arrangement_2::Halfedge_handle> edges_to_remove;
+    std::set<Arrangement_2::Halfedge_handle> edges_to_remove;
 
     for (auto it = arr.faces_begin(); it != arr.faces_end(); ++it) {
         if (it->is_unbounded()) {
@@ -879,7 +1095,11 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
                 auto p1index = input_polygon_boundary(center);
                 const bool on_orig_bound = p1index != input_polygons.end();
                 if (on_orig_bound) {
-                    edges_to_remove.push_back(curr);
+                    if (edges_to_remove.find(curr->twin()) != edges_to_remove.end()) {
+                        std::cerr << "Warning trying to delete edge twice" << std::endl;
+                    } else {
+                        edges_to_remove.insert(curr);
+                    }
                 }
                 curr++;
             } while (curr != it->outer_ccb());
@@ -893,7 +1113,11 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
                     auto p1index = input_polygon_boundary(center);
                     const bool on_orig_bound = p1index != input_polygons.end();
                     if (on_orig_bound) {
-                        edges_to_remove.push_back(curr);
+                        if (edges_to_remove.find(curr->twin()) != edges_to_remove.end()) {
+                            std::cerr << "Warning trying to delete edge twice" << std::endl;
+                        } else {
+                            edges_to_remove.insert(curr);
+                        }
                     }
                     curr++;
                 } while (curr != *jt);
@@ -1024,6 +1248,8 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
 #endif
 }
 
+#ifndef SVGFILL_MAIN
+
 bool svgfill::arrange_polygons(const std::vector<svgfill::polygon_2>& polygons, std::vector<svgfill::polygon_2>& arranged)
 {
     std::vector<Polygon_2> cgal_polygons, cgal_polygons_out;
@@ -1048,6 +1274,8 @@ bool svgfill::arrange_polygons(const std::vector<svgfill::polygon_2>& polygons, 
     return true;
 }
 
+#else
+
 template <typename T>
 Polygon_2 create_rectangle(T x_min, T y_min, T x_max, T y_max) {
     Polygon_2 rectangle;
@@ -1057,8 +1285,6 @@ Polygon_2 create_rectangle(T x_min, T y_min, T x_max, T y_max) {
     rectangle.push_back(Point_2(x_min, y_max));
     return rectangle;
 }
-
-/*
 
 #include <nlohmann/json.hpp>
 
@@ -1072,6 +1298,8 @@ int main(int argc, char** argv) {
         file >> jsonData;
         size_t i = 0;
         for (const auto& item : jsonData.items()) {
+            std::cout << "i " << i << std::endl;
+            i++;
             input_polygons.clear();
             const auto& polygonsData = item.value();
             for (const auto& polygonData : polygonsData) {
@@ -1083,6 +1311,7 @@ int main(int argc, char** argv) {
                 }
             }
             arrange_cgal_polygons(input_polygons, output);
+            break;
         }
         return 0;
     } else {
@@ -1098,4 +1327,5 @@ int main(int argc, char** argv) {
 
     return 0;
 }
-*/
+
+#endif
