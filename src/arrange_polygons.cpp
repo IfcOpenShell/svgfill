@@ -274,6 +274,10 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
             std::distance(input_polygons.begin(), it)
         );
 
+        if (!it->is_simple()) {
+            throw std::runtime_error("Self-intersecting input");
+        }
+
         CGAL::Polygon_triangulation_decomposition_2<K> decompositor;
         std::vector<Polygon_2> temp;
         decompositor(*it, std::back_inserter(temp));
