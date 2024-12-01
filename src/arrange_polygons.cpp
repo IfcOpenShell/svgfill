@@ -1,4 +1,4 @@
-﻿#define SVGFILL_DEBUG
+﻿// #define SVGFILL_DEBUG
 // #define SVGFILL_MAIN
 
 #ifndef SVGFILL_MAIN
