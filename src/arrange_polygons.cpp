@@ -47,7 +47,12 @@ Polygon_2 convert_polygon(const CGAL::Polygon_2<K2>& poly) {
     return exact_poly;
 }
 
-std::vector<Polygon_2> create_and_convert_offset_polygon(double offset_distance, const Polygon_2& polygon) {
+std::vector<Polygon_2> create_and_convert_offset_polygon(double offset_distance, const Polygon_2& polygon_) {
+    auto polygon = polygon_;
+    if (!polygon.is_counterclockwise_oriented()) {
+        polygon.reverse_orientation();
+    }
+
     // Create the offset polygons using Epick kernel
     // create_exterior_skeleton_and_offset_polygons_2()
 #if CGAL_VERSION_NR >= 1060000000
@@ -74,6 +79,14 @@ std::vector<Polygon_2> create_and_convert_offset_polygon(double offset_distance,
     }
 
     return exact_offset_polygons;
+}
+
+template <typename T>
+const T& take_first_if_single_item(const std::vector<T>& vec) {
+    if (vec.size() == 1) {
+        return vec.front();
+    }
+    throw std::runtime_error("Expected a single item");
 }
 
 // Function to write polygons as line segments in OBJ format
@@ -145,11 +158,7 @@ Polygon_2 fuse_with_offset(const std::vector<Polygon_2>& polygons, double polygo
     // Find the outer perimeter using offset - union - negative offset
     std::vector<Polygon_2> offset_polygons;
     for (auto& r : polygons) {
-        auto R = r;
-        if (!R.is_counterclockwise_oriented()) {
-            R.reverse_orientation();
-        }
-        auto ps = create_and_convert_offset_polygon(polygon_offset_distance, R);
+        auto ps = create_and_convert_offset_polygon(polygon_offset_distance, r);
         for (auto& p : ps) {
             if (!p.is_simple()) {
                 {
@@ -291,14 +300,17 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
         }
     }
 
-    std::vector<std::pair<size_t, size_t>> overlaps;
+    std::set<std::pair<size_t, size_t>> overlaps;
 
     CGAL::box_self_intersection_d(boxes.begin(), boxes.end(), [&input_triangulated, &overlaps](const Box& a, const Box& b) {
         for (auto& t1 : input_triangulated[a.handle()]) {
             bool registered_overlap = false;
             for (auto& t2 : input_triangulated[b.handle()]) {
                 if (CGAL::squared_distance(t1, t2) < (1.e-3 * 1.e-3)) {
-                    overlaps.emplace_back(a.handle(), b.handle());
+                    overlaps.insert({
+                        (a.handle() < b.handle()) ? a.handle() : b.handle(),
+                        (a.handle() < b.handle()) ? b.handle() : a.handle()
+                        });
                     registered_overlap = true;
                     break;
                 }
@@ -310,7 +322,56 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
         }
     });
 
-    {
+    if (true) {
+        // solve overlaps by means of subtraction
+        // loop over overlaps and subtract the smaller polygon from the larger one
+
+        std::set<size_t> eliminated_polies;
+
+        for (const auto& edge : overlaps) {
+            auto& poly1 = input_polygons[edge.first];
+            auto& poly2 = input_polygons[edge.second];
+            if (poly1.is_simple() && poly2.is_simple()) {
+                std::vector<Polygon_with_holes_2> result;
+                int assign_to;
+                if (poly1.area() < poly2.area()) {
+                    CGAL::difference(poly1, take_first_if_single_item(create_and_convert_offset_polygon(1.e-2, poly2)), std::back_inserter(result));
+                    poly2 = take_first_if_single_item(create_and_convert_offset_polygon(-1.e-2, poly2));
+                    assign_to = edge.first;
+                } else {
+                    CGAL::difference(poly2, take_first_if_single_item(create_and_convert_offset_polygon(1.e-2, poly1)), std::back_inserter(result));
+                    poly1 = take_first_if_single_item(create_and_convert_offset_polygon(-1.e-2, poly1));
+                    assign_to = edge.second;
+                }
+                if (result.size() == 1) {
+                    input_polygons[assign_to] = result.front().outer_boundary();
+                    if (result.front().number_of_holes() == 0) {
+
+                    } else {
+                        /*
+                        write_polygon_to_obj(obj, vi, true, result.front().outer_boundary(), "invalid_outer");
+                        size_t ii = 0;
+                        for (auto& i : result.front().holes()) {
+                            write_polygon_to_obj(obj, vi, true, i, "invalid_hole_" + std::to_string(ii + 1));
+                        }
+                        obj << std::flush;
+                        */
+                        eliminated_polies.insert(assign_to == edge.first ? edge.second : edge.first);
+                    }
+                } else {
+                    throw std::runtime_error("Unexpected union outcome");
+                }
+            }
+        }
+
+        // iterate over the eliminated polygons and remove them from the input polygons
+        for (auto it = eliminated_polies.rbegin(); it != eliminated_polies.rend(); ++it) {
+            input_polygons.erase(input_polygons.begin() + *it);
+        }
+    }
+
+    if (false) {
+        // solve overlap by means of union into components
         std::vector<std::vector<size_t>> adj(input_polygons.size());
         for (const auto& edge : overlaps) {
             adj[edge.first].push_back(edge.second);
@@ -518,7 +579,7 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
     auto inner_offset = create_and_convert_offset_polygon(
         // Because polygon_offset is inexact, make sure our inset distance is slightly larger
         // std::nexttoward(-polygon_offset_distance, -std::numeric_limits<double>::infinity()),
-        
+
         // 1.e-8 even was too large and still resulted in slivers of triangle around the perimeter  
         -polygon_offset_distance - 1.e-5,
         fused_removed_close_points);
@@ -833,30 +894,37 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
     obj << std::flush;
 #endif
 
-    size_t n_vertices_removed = 0;
-    for (auto vit = G.vertices_begin(); vit != G.vertices_end();) {
-        if (vit->second.size() == 2) {
-            auto it = vit->second.begin();
-            auto& P = *it++;
-            auto& Q = *it++;
-            auto e1 = P - vit->first;
-            auto e2 = vit->first - Q;
-            if (e1.squared_length() == 0 || e2.squared_length() == 0) {
-                // @todo why does this happen?
-                ++vit;
-                continue;
-            }
-            e1 /= std::sqrt(CGAL::to_double(e1.squared_length()));
-            e2 /= std::sqrt(CGAL::to_double(e2.squared_length()));
-            if (CGAL::to_double(e1 * e2) > (1. - 1.e-7)) {
-                vit = G.eliminate_vertex(vit);
-                ++n_vertices_removed;
+    auto is_parallel_2degree_node = [](decltype(G)::vertex_const_iterator vit) {
+        auto it = vit->second.begin();
+        auto& P = *it++;
+        auto& Q = *it++;
+        auto e1 = P - vit->first;
+        auto e2 = vit->first - Q;
+        if (e1.squared_length() == 0 || e2.squared_length() == 0) {
+            // @todo why does this happen?
+            return false;
+        }
+        e1 /= std::sqrt(CGAL::to_double(e1.squared_length()));
+        e2 /= std::sqrt(CGAL::to_double(e2.squared_length()));
+        return std::abs(CGAL::to_double(e1 * e2)) > (1. - 1.e-5);
+    };
+
+    {
+        // Remove colinear vertices
+        size_t n_vertices_removed = 0;
+        for (auto vit = G.vertices_begin(); vit != G.vertices_end();) {
+            if (vit->second.size() == 2) {
+                if (is_parallel_2degree_node(vit)) {
+                    vit = G.eliminate_vertex(vit);
+                    ++n_vertices_removed;
+                } else {
+                    ++vit;
+                }
             } else {
                 ++vit;
             }
-        } else {
-            ++vit;
         }
+        // std::cout << "Eliminated " << n_vertices_removed << " vertices" << std::endl;
     }
 
     // Ortho edge slide
@@ -870,7 +938,8 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
                 for (auto vjt = vit->second.begin(); vjt != vit->second.end(); ++vjt) {
                     auto& neighbour = *vjt;
                     bool processed_neighbour = false;
-                    if (G.find(neighbour)->second.size() == 2) {
+
+                    if (G.find(neighbour)->second.size() == 2 && !is_parallel_2degree_node(G.find(neighbour))) {
                         auto vkt = G.find(neighbour)->second.begin();
                         if (selected == *vkt) {
                             vkt++;
@@ -882,7 +951,6 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
                         }
 
                         auto incoming = CGAL::Ray_2<K>(other, neighbour - other);
-
                         boost::optional<CGAL::Segment_2<K>> closest_neighbouring_segment;
                         boost::optional<CGAL::Point_2<K>> closest_intersection_point;
                         K::FT sq_distance_along_ray = std::numeric_limits<double>::infinity();
@@ -904,6 +972,7 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
                                         if (dist < sq_distance_along_ray) {
                                             closest_neighbouring_segment = neighbouring_segment;
                                             closest_intersection_point = *xp;
+                                            sq_distance_along_ray = dist;
                                         }
                                     }
                                 }
@@ -916,6 +985,7 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
                             edges_to_insert.push_back({ closest_neighbouring_segment->source(), *closest_intersection_point });
                             edges_to_insert.push_back({ closest_neighbouring_segment->target(), *closest_intersection_point });
                             edges_to_insert.push_back({ neighbour, *closest_intersection_point });
+
                             processed_neighbour = true;
                         }
                     }
