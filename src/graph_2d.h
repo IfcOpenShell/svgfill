@@ -32,6 +32,49 @@ public:
         return adjacency_list.find(p);
     }
 
+    void move(const Point_2& from, const Point_2& to) {
+        // @todo should check for intersections?
+        auto it = adjacency_list.find(from);
+        if (it != adjacency_list.end()) {
+            auto neighbours = it->second;
+            for (auto& n : neighbours) {
+                adjacency_list[n].erase(from);
+                adjacency_list[n].insert(to);
+            }
+            adjacency_list.erase(it);
+            adjacency_list.insert({ to, neighbours });
+        }
+    }
+
+    bool is_valid() const {
+        typedef CGAL::Box_intersection_d::Box_with_handle_d<double, 2, size_t, CGAL::Box_intersection_d::ID_EXPLICIT> Box;
+        std::vector<Box> boxes;
+        std::vector<CGAL::Segment_2<Kernel>> segments;
+        for (const auto& p : adjacency_list) {
+            for (const auto& q : p.second) {
+                if (p.first < q) {
+                    segments.emplace_back(p.first, q);
+                }
+            }
+        }
+        for (auto it = segments.begin(); it != segments.end(); ++it) {
+            boxes.emplace_back(it->bbox(), std::distance(segments.begin(), it));
+        }
+        bool any = false;
+        CGAL::box_self_intersection_d(boxes.begin(), boxes.end(), [this, &segments, &any](const Box& a, const Box& b) {
+            auto& seg1 = segments[a.handle()];
+            auto& seg2 = segments[b.handle()];
+            // Skip topologically connected segments
+            if (seg1.source() == seg2.source() || seg1.source() == seg2.target() || seg1.target() == seg2.source() || seg1.target() == seg2.target()) {
+                return;
+            }
+            if (CGAL::do_intersect(seg1, seg2)) {
+                any = true;
+            }
+        });
+        return any;
+    }
+
     // Eliminates a vertex with exactly two neighbors by connecting its neighbors
     typename std::map<Point_2, std::set<Point_2>>::iterator eliminate_vertex(typename std::map<Point_2, std::set<Point_2>>::iterator it) {
         if (it == adjacency_list.end()) {
@@ -225,11 +268,10 @@ public:
 #endif
     }
 
-    bool remove_edge(const Point_2& u, const Point_2& v) {
+    void remove_edge(const Point_2& u, const Point_2& v) {
         adjacency_list[u].erase(v);
         adjacency_list[v].erase(u);
         assert_symmetric();
-        return true;
     }
 
     void insert(const Point_2& u, const Point_2& v) {
