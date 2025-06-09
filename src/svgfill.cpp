@@ -538,6 +538,7 @@ bool svgfill::line_segments_to_polygons(solver s, double eps, const std::vector<
 namespace {
 	std::string format_pt(const svgfill::point_2& p) {
 		std::ostringstream oss;
+		oss << std::setprecision(std::numeric_limits<double>::max_digits10);
 		oss << p[0] << "," << p[1];
 		return oss.str();
 	}
