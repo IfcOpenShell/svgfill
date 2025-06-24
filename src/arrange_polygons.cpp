@@ -1199,7 +1199,8 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
                         boost::optional<CGAL::Segment_2<K>> closest_segment;
                         boost::optional<CGAL::Point_2<K>> closest_intersection_point;
                         K::FT sq_distance_along_ray = std::numeric_limits<double>::infinity();
-                        for (const auto& seg : bnd.edges()) {
+                        for (auto jt = bnd.edges_begin(); jt != bnd.edges_end(); ++jt) {
+                            const auto& seg = *jt;
                             auto x = CGAL::intersection(ray, seg);
                             if (x) {
                                 if (auto* xp = variant_get<CGAL::Point_2<K>>(&*x)) {
