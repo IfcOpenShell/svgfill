@@ -22,6 +22,12 @@
 
 #include "graph_2d.h"
 
+#if CGAL_VERSION_NR >= 1060000000
+#define variant_get std::get_if
+#else
+#define variant_get boost::get
+#endif
+
 typedef CGAL::Exact_predicates_exact_constructions_kernel K;
 typedef CGAL::Polygon_2<K> Polygon_2;
 typedef CGAL::Polygon_with_holes_2<K> Polygon_with_holes_2;
@@ -531,6 +537,20 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
         input_polygons = fused_polies;
     }
 
+    {
+        // Inset-offset to remove tiny details
+        for (auto& r : input_polygons) {
+            auto ps = create_and_convert_offset_polygon(-polygon_offset_distance / 50., r);
+            if (ps.size() == 1) {
+                auto r2 = ps.front();
+                ps = create_and_convert_offset_polygon(+polygon_offset_distance / 50., r2);
+                if (ps.size() == 1) {
+                    r = ps.front();
+                }
+            }
+        }
+    }
+
 #ifdef SVGFILL_DEBUG
     for (auto it = input_polygons.begin(); it != input_polygons.end(); ++it) {
         write_polygon_to_obj(obj, vi, true, *it, "processed_input_poly_" + std::to_string(std::distance(input_polygons.begin(), it)));
@@ -806,6 +826,7 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
 
     // Build maps of triangle -> edge and edge -> triangle in order to do traversal on the 'corridor mesh'
     std::map<std::pair<Point_2, Point_2>, std::vector<CGAL::Polygon_2<K>*>> segment_to_facet;
+    std::map<std::pair<Point_2, Point_2>, std::vector<CGAL::Polygon_2<K>*>> segment_to_input_facet;
     std::map<std::pair<Point_2, Point_2>, Point_2> segment_to_midpoint;
     std::map<Point_2, std::pair<Point_2, Point_2>> midpoint_to_segment;
     std::map<CGAL::Polygon_2<K>*, std::vector<std::pair<Point_2, Point_2>>> facet_to_segment;
@@ -826,9 +847,12 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
     for (auto& p : segment_to_facet) {
         auto center = CGAL::ORIGIN + (((p.first.first - CGAL::ORIGIN) + (p.first.second - CGAL::ORIGIN)) / 2);
 
-
         auto p1index = input_polygon_boundary(p.first.first);
         auto p2index = input_polygon_boundary(p.first.second);
+
+        segment_to_input_facet[p.first].push_back(&*p1index);
+        segment_to_input_facet[p.first].push_back(&*p2index);
+
         if (p1index != input_polygons.end() && p2index != input_polygons.end() && p1index != p2index) {
             segment_to_midpoint[p.first] = center;
             midpoint_to_segment[center] = p.first;
@@ -1074,12 +1098,6 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
                                 CGAL::Segment_2<K> neighbouring_segment(selected, other_neighbour);
                                 auto x = CGAL::intersection(incoming, neighbouring_segment);
                                 if (x) {
-#if CGAL_VERSION_NR >= 1060000000
-#define variant_get std::get_if
-#else
-#define variant_get boost::get
-#endif
-
                                     if (auto* xp = variant_get<CGAL::Point_2<K>>(&*x)) {
                                         auto dist = ((*xp) - other).squared_length();
                                         if (dist < sq_distance_along_ray) {
@@ -1136,6 +1154,9 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
     Arrangement_2 arr;
 
     for (auto it = G.edges_begin(); it != G.edges_end(); ++it) {
+        if (it->first == it->second) {
+            continue;
+		}
         CGAL::insert(arr, Segment_2(it->first, it->second));
     }
 
@@ -1164,47 +1185,119 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
                 continue;
             }
 
+            bool handled_as_graph_path = false;
+
             // distance from unioned - shoot ray?
+            if (segment_to_input_facet[*q].size() == 2) {
+                for (auto& bnd : inner_offset) {
+                    // if point M is contained in bnd interior:
+                    if (bnd.has_on_bounded_side(M)) {
+                        auto& incoming = *it->second.begin();
+                        // create ray incoming -> M
+                        CGAL::Ray_2<K> ray(incoming, M - incoming);
+                        // intersect ray with boundary
+                        boost::optional<CGAL::Segment_2<K>> closest_segment;
+                        boost::optional<CGAL::Point_2<K>> closest_intersection_point;
+                        K::FT sq_distance_along_ray = std::numeric_limits<double>::infinity();
+                        for (const auto& seg : bnd.edges()) {
+                            auto x = CGAL::intersection(ray, seg);
+                            if (x) {
+                                if (auto* xp = variant_get<CGAL::Point_2<K>>(&*x)) {
+                                    auto dist = ((*xp) - M).squared_length();
+                                    if (dist < sq_distance_along_ray) {
+                                        closest_segment = seg;
+                                        closest_intersection_point = *xp;
+                                        sq_distance_along_ray = dist;
+                                    }
+                                }
+                            }
+                        }
 
-            // for now we choose to map point to the midpoint of the found two close points.
+                        if (closest_intersection_point) {
+                            Graph2D<K> GGG(bnd);
+                            GGG.refine(*GGG.query(*closest_intersection_point, 0.01), *closest_intersection_point);
 
-            auto pq = close_input_point(q->first);
-            auto pr = close_input_point(q->second);
+                            std::array<std::set<CGAL::Point_2<K>>, 2> input_points = { { {}, {} } };
 
-            auto Q = pq.second;
-            auto R = pr.second;
+                            size_t i = 0;
+                            for (auto& fac : segment_to_input_facet[*q]) {
+                                for (auto it = fac->vertices_begin(); it != fac->vertices_end(); ++it) {
+                                    auto seg = GGG.query(*it, 0.01);
+                                    if (seg) {
+                                        if (seg->source() != *it && seg->target() != *it) {
+                                            GGG.refine(*seg, *it);
+										}
+                                        input_points[i].insert(*it);
+                                    }
+                                }
+                                i++;
+                            }
 
-            if (Q == R) {
-                // this can happen in situations like this:
-                // where Q and R are co-located, because the point R' is further away
-                // in that case M + M-Q should gives is x that we then project onto the
-                // input boundary
-                // 
-                // 
-                // ┌───────┐                
-                // │       │                
-                // │       │                
-                // │       │                
-                // └───────o   <--Q,R                
-                //                          
-                // ────────o   <--M             
-                //                          
-                // ┌───────x───────────────o  <---R'
-                // │                       │
-                // │                       │
-                // │                       │
-                // │                       │
-                // └───────────────────────┘
+                            auto a1 = GGG.shorted_path(*closest_intersection_point, input_points[0]);
+                            auto a2 = GGG.shorted_path(*closest_intersection_point, input_points[1]);
 
-                // @todo is this projection actually necessary or is it already 'exact enough'?
-                R = project_input_point(M + (M - Q)).second;
+                            if (!a1.empty() && !a2.empty()) {
+
+                                if (M != *closest_intersection_point) {
+                                    edge_ops.push_front({ M, *closest_intersection_point });
+                                }
+                                for (auto it = a1.begin(); it != a1.end() && std::next(it) != a1.end(); ++it) {
+                                    edge_ops.push_front({ *it, *(std::next(it)) });
+                                }
+                                for (auto it = a2.begin(); it != a2.end() && std::next(it) != a2.end(); ++it) {
+                                    edge_ops.push_front({ *it, *(std::next(it)) });
+                                }
+
+                                handled_as_graph_path = true;
+                                break;
+                            }
+                        }
+                    }
+                }
             }
 
-            auto avg = CGAL::ORIGIN + ((Q - CGAL::ORIGIN) + (R - CGAL::ORIGIN)) / 2;
+            if (!handled_as_graph_path) {
+                // else we choose to map point to the midpoint of the found two close points.
 
-            move_ops.push_front({ M, avg });
-            edge_ops.push_front({ avg, Q });
-            edge_ops.push_front({ avg, R });
+                auto pq = close_input_point(q->first);
+                auto pr = close_input_point(q->second);
+
+                auto Q = pq.second;
+                auto R = pr.second;
+
+                if (Q == R) {
+                    // this can happen in situations like this:
+                    // where Q and R are co-located, because the point R' is further away
+                    // in that case M + M-Q should gives is x that we then project onto the
+                    // input boundary
+                    // 
+                    // 
+                    // ┌───────┐                
+                    // │       │                
+                    // │       │                
+                    // │       │                
+                    // └───────o   <--Q,R                
+                    //                          
+                    // ────────o   <--M             
+                    //                          
+                    // ┌───────x───────────────o  <---R'
+                    // │                       │
+                    // │                       │
+                    // │                       │
+                    // │                       │
+                    // └───────────────────────┘
+
+                    // @todo is this projection actually necessary or is it already 'exact enough'?
+                    R = project_input_point(M + (M - Q)).second;
+                }
+
+                auto avg = CGAL::ORIGIN + ((Q - CGAL::ORIGIN) + (R - CGAL::ORIGIN)) / 2;
+
+                move_ops.push_front({ M, avg });
+                edge_ops.push_front({ avg, Q });
+                edge_ops.push_front({ avg, R });
+
+            }
         }
     }
 
@@ -1214,6 +1307,9 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
 
     // note that we actually don't move but draw an edge
     for (auto& pq : move_ops) {
+        if (pq.first == pq.second) {
+            continue;
+        }
         CGAL::insert(arr, Segment_2(pq.first, pq.second));
 
 #ifdef SVGFILL_DEBUG
@@ -1226,6 +1322,9 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
 
 
     for (auto& pq : edge_ops) {
+        if (pq.first == pq.second) {
+            continue;
+        }
         CGAL::insert(arr, Segment_2(pq.first, pq.second));
 
 #ifdef SVGFILL_DEBUG
@@ -1240,6 +1339,9 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
     for (auto& poly : input_polygons) {
         for (size_t i = 0; i != poly.size(); ++i) {
             auto j = (i + 1) % poly.size();
+            if (poly.vertex(i) == poly.vertex(j)) {
+                continue;
+            }
             CGAL::insert(arr, Segment_2(poly.vertex(i), poly.vertex(j)));
         }
     }
