@@ -5,91 +5,18 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 project (svgfill)
 
-cmake_policy(SET CMP0074 NEW) # find_package() uses <PackageName>_ROOT variables.
-if (POLICY CMP0144)
-cmake_policy(SET CMP0144 NEW) # find_package() uses upper-case <PACKAGENAME>_ROOT variables.
-endif()
-
-include(GNUInstallDirs)
-
-# Specify paths to install files
-if(NOT BINDIR)
-    set(BINDIR bin)
-endif()
-if(NOT IS_ABSOLUTE ${BINDIR})
-    set(BINDIR ${CMAKE_INSTALL_BINDIR})
-endif()
-message(STATUS "BINDIR: ${BINDIR}")
-
-if(NOT INCLUDEDIR)
-    set(INCLUDEDIR include)
-endif()
-if(NOT IS_ABSOLUTE ${INCLUDEDIR})
-    set(INCLUDEDIR ${CMAKE_INSTALL_INCLUDEDIR})
-endif()
-message(STATUS "INCLUDEDIR: ${INCLUDEDIR}")
-
-if(NOT LIBDIR)
-    set(LIBDIR lib)
-endif()
-if(NOT IS_ABSOLUTE ${LIBDIR})
-    set(LIBDIR ${CMAKE_INSTALL_LIBDIR})
-endif()
-message(STATUS "LIBDIR: ${LIBDIR}")
-
-set(CGAL_LIBRARY_NAMES libCGAL_Core libCGAL_ImageIO libCGAL)
-
-if("${CGAL_INCLUDE_DIR}" STREQUAL "")
-	set(CGAL_INCLUDE_DIR "/usr/include/" CACHE FILEPATH "CGAL header files")
-	message(STATUS "Looking for CGAL include files in: ${CGAL_INCLUDE_DIR}")
-	message(STATUS "Use CGAL_INCLUDE_DIR to specify another directory")
-else()
-	set(CGAL_INCLUDE_DIR ${CGAL_INCLUDE_DIR} CACHE FILEPATH "CGAL header files")
-	message(STATUS "Looking for CGAL include files in: ${CGAL_INCLUDE_DIR}")
-endif()
-
-if(NOT "${CGAL_LIBRARY_DIR}" STREQUAL "")
-	set(CGAL_LIBRARY_DIR ${CGAL_LIBRARY_DIR} CACHE FILEPATH "CGAL library files")
-	message(STATUS "Looking for CGAL library files in: ${CGAL_LIBRARY_DIR}")
-endif()
-
 if(WASM_BUILD)
     set(CMAKE_FIND_ROOT_PATH_BACKUP "${CMAKE_FIND_ROOT_PATH}")
     set(CMAKE_FIND_ROOT_PATH "")
 endif()
 
-find_library(libCGAL NAMES CGAL PATHS ${CGAL_LIBRARY_DIR} NO_DEFAULT_PATH)
+find_package(Boost REQUIRED CONFIG)
+find_package(svgpp REQUIRED CONFIG)
+find_package(libxml2 REQUIRED CONFIG)
+find_package(CGAL REQUIRED CONFIG)
+find_package(gmp REQUIRED CONFIG)
+find_package(mpfr REQUIRED CONFIG)
 
-if(libCGAL)
-	message(STATUS "CGAL library files found")
-	foreach(lib ${CGAL_LIBRARY_NAMES})
-		string(REPLACE libCGAL "${lib}" lib_path "${libCGAL}")
-		list(APPEND CGAL_LIBRARIES "${lib_path}")
-	endforeach()
-else()
-	if(NOT "${CGAL_LIBRARY_DIR}" STREQUAL "")
-		file(GLOB CGAL_LIBRARIES ${CGAL_LIBRARY_DIR}/CGAL*.lib)
-		list(LENGTH CGAL_LIBRARY_NAMES num_cgal_library_names)
-		list(LENGTH CGAL_LIBRARIES num_cgal_libraries)
-		link_directories("${CGAL_LIBRARY_DIR}")
-		if(NOT "${num_cgal_library_names}" STREQUAL "${num_cgal_libraries}")
-			message(FATAL_ERROR "Unable to find CGAL library files, aborting")
-		endif()
-		message(STATUS "CGAL library files found")
-	endif()
-endif()
-
-find_library(libGMP NAMES gmp mpir PATHS ${GMP_LIBRARY_DIR} NO_DEFAULT_PATH)
-find_library(libMPFR NAMES mpfr PATHS ${MPFR_LIBRARY_DIR} NO_DEFAULT_PATH)
-if(NOT libGMP)
-        message(FATAL_ERROR "Unable to find GMP library files, aborting")
-endif()
-if(NOT libMPFR)
-        message(FATAL_ERROR "Unable to find MPFR library files, aborting")
-endif()
-
-list(APPEND CGAL_LIBRARIES "${libMPFR}")
-list(APPEND CGAL_LIBRARIES "${libGMP}")
 
 if(WIN32 AND ("$ENV{CONDA_BUILD}" STREQUAL ""))
 	set(Boost_USE_STATIC_LIBS ON)
@@ -112,31 +39,24 @@ if (MSVC)
 	add_definitions(-bigobj)
 endif()
 
-find_package(Boost)
-message(STATUS "Boost include files found in ${Boost_INCLUDE_DIRS}")
-
 if(WASM_BUILD)
     set(CMAKE_FIND_ROOT_PATH "${CMAKE_FIND_ROOT_PATH_BACKUP}")
 endif()
 
 
-
-include_directories(${Boost_INCLUDE_DIRS} ${LIBXML2_INCLUDE_DIR}
-	${CGAL_INCLUDE_DIR} ${GMP_INCLUDE_DIR} ${MPFR_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/svgpp/include
-)
-
 file(GLOB LIB_H_FILES src/*.h)
+message(STATUS "Found header files: ${LIB_H_FILES}")
 file(GLOB LIB_CPP_FILES src/svgfill.cpp src/arrange_polygons.cpp)
-set(LIB_SRC_FILES ${LIB_H_FILES} ${LIB_CPP_FILES})
-add_library(svgfill ${LIB_SRC_FILES})
-target_link_libraries(svgfill ${Boost_LIBRARIES} ${BCRYPT_LIBRARIES} ${LIBXML2_LIBRARIES} ${CGAL_LIBRARIES})
+
+add_library(svgfill ${LIB_H_FILES} ${LIB_CPP_FILES})
+target_link_libraries(svgfill Boost::boost svgpp::svgpp LibXml2::LibXml2 CGAL::CGAL)
 
 add_executable(svgfill_exe src/main.cpp)
 target_link_libraries(svgfill_exe svgfill)
 set_property(TARGET svgfill_exe PROPERTY OUTPUT_NAME svgfill)
 if(WIN32)
 	# both the library and the executable now result in a file with basename svgfill,
-	# on linux the the library is prefixed with lib as libsvgfill.a. Windows does not
+	# on linux the library is prefixed with lib as libsvgfill.a. Windows does not
 	# have this mechanism, so on windows the linker would be created an import library
 	# for the executable, also named svgfill.lib. This naming conflict results in:
 	#     LINK : fatal error LNK1149: output filename matches input filename
@@ -145,6 +65,11 @@ if(WIN32)
     target_link_options(svgfill_exe PRIVATE "/NOIMPLIB")
 endif()
 
-install(TARGETS svgfill_exe DESTINATION ${BINDIR})
-install(TARGETS svgfill DESTINATION ${LIBDIR})
-install(FILES ${LIB_H_FILES} DESTINATION ${INCLUDEDIR})
+set_target_properties(svgfill PROPERTIES PUBLIC_HEADER "src/svgfill.h;src/progress.h")
+install(TARGETS svgfill)
+
+install(TARGETS svgfill_exe	 DESTINATION "."
+        RUNTIME DESTINATION bin
+        ARCHIVE DESTINATION lib
+        LIBRARY DESTINATION lib
+        )
