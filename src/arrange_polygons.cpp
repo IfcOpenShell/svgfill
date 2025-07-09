@@ -17,6 +17,10 @@
 #include <CGAL/Filtered_extended_homogeneous.h>
 #include <CGAL/box_intersection_d.h>
 
+#include <CGAL/AABB_tree.h>
+#include <CGAL/AABB_traits.h>
+#include <CGAL/AABB_segment_primitive.h>
+
 #include <vector>
 #include <iostream>
 
@@ -24,8 +28,10 @@
 
 #if CGAL_VERSION_NR >= 1060000000
 #define variant_get std::get_if
+#define my_shared_ptr std::shared_ptr
 #else
 #define variant_get boost::get
+#define my_shared_ptr boost::shared_ptr
 #endif
 
 typedef CGAL::Exact_predicates_exact_constructions_kernel K;
@@ -61,12 +67,7 @@ std::vector<Polygon_2> create_and_convert_offset_polygon(double offset_distance,
 
     // Create the offset polygons using Epick kernel
     // create_exterior_skeleton_and_offset_polygons_2()
-#if CGAL_VERSION_NR >= 1060000000
-#define shared_ptr std::shared_ptr
-#else
-#define shared_ptr boost::shared_ptr
-#endif
-    std::vector<shared_ptr<CGAL::Polygon_2<CGAL::Epick>>> offset_polygons;
+    std::vector<my_shared_ptr<CGAL::Polygon_2<CGAL::Epick>>> offset_polygons;
 
     if (offset_distance >= 0.) {
         offset_polygons = CGAL::create_exterior_skeleton_and_offset_polygons_2(offset_distance, polygon);
@@ -558,6 +559,44 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
     }
 #endif
 
+    // Unfortunately CGAL does not seem to have a ready to use aabb primitive for segments in 2D,
+    // so we have to use 3D segments and aabb tree for 2D polygons.
+    std::list<CGAL::Segment_3<K>> all_segs;
+    std::unordered_map<CGAL::Segment_3<K>*, decltype(input_polygons.begin())> seg_to_poly;
+
+    for (auto it = input_polygons.begin(); it != input_polygons.end(); ++it) {
+        for (auto eit = it->edges_begin(); eit != it->edges_end(); ++eit) {
+            CGAL::Segment_3<K> seg3d(
+                CGAL::Point_3<K>(eit->source().x(), eit->source().y(), 0),
+                CGAL::Point_3<K>(eit->target().x(), eit->target().y(), 0)
+            );
+            all_segs.push_back(seg3d);
+            seg_to_poly[&all_segs.back()] = it;
+        }
+    }
+
+    using TreeTraits = CGAL::AABB_traits<K, CGAL::AABB_segment_primitive<K, std::list<CGAL::Segment_3<K>>::iterator>>;
+    using Tree = CGAL::AABB_tree<TreeTraits>;
+
+    Tree tree(all_segs.begin(), all_segs.end());
+    tree.accelerate_distance_queries();
+
+    auto input_polygon_boundary =
+        [&](const Point_2& p, double tol = 1e-5) -> decltype(input_polygons.begin())
+    {
+        // Find closest point & corresponding segment
+        auto closest = tree.closest_point_and_primitive(CGAL::Point_3<K>(p.x(), p.y(), 0));
+        const auto& closest_pt = closest.first;
+        auto seg_ptr = &*closest.second;
+
+        double d = CGAL::to_double(CGAL::squared_distance(p, Point_2(closest_pt.x(), closest_pt.y())));
+        if (d < (tol * tol)) {
+            return seg_to_poly.find(seg_ptr)->second;
+        }
+        return input_polygons.end();
+    };
+
+    /*
     auto input_polygon_boundary = [&input_polygons](const CGAL::Point_2<K>& p, double tol = 1.e-5) {
         // unfortunately some imprecision slept into the code so we can't
         // so we can't just use has_on_boundary() anymore
@@ -576,6 +615,7 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
         }
         return input_polygons.end();
     };
+    */
 
     auto close_input_point = [&input_polygons](const CGAL::Point_2<K>& P) {
         CGAL::Point_2<K> closest;
@@ -843,12 +883,26 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
         }
     }
 
+    // This part is the most computationally expensive. Caching effectively halves the lookup time here, since every vertex has two outgoing edges.
+    std::map<Point_2, decltype(input_polygons.begin())> input_polygon_boundary_cache;
+    auto cached_input_polygon_boundary = [&](const Point_2& p, double tol = 1e-5) -> decltype(input_polygons.begin())
+    {
+        auto it = input_polygon_boundary_cache.find(p);
+        if (it == input_polygon_boundary_cache.end()) {
+            auto index = input_polygon_boundary(p, tol);
+            input_polygon_boundary_cache[p] = index;
+            return index;
+        } else {
+            return it->second;
+        }
+    };
+
     // Register midpoints on the edges within the 'corridor mesh' that span multiple input polygons
     for (auto& p : segment_to_facet) {
         auto center = CGAL::ORIGIN + (((p.first.first - CGAL::ORIGIN) + (p.first.second - CGAL::ORIGIN)) / 2);
 
-        auto p1index = input_polygon_boundary(p.first.first);
-        auto p2index = input_polygon_boundary(p.first.second);
+        auto p1index = cached_input_polygon_boundary(p.first.first);
+        auto p2index = cached_input_polygon_boundary(p.first.second);
 
         segment_to_input_facet[p.first].push_back(&*p1index);
         segment_to_input_facet[p.first].push_back(&*p2index);
@@ -1156,7 +1210,7 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
     for (auto it = G.edges_begin(); it != G.edges_end(); ++it) {
         if (it->first == it->second) {
             continue;
-		}
+        }
         CGAL::insert(arr, Segment_2(it->first, it->second));
     }
 
@@ -1227,7 +1281,7 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
                                     if (seg) {
                                         if (seg->source() != *it && seg->target() != *it) {
                                             GGG.refine(*seg, *it);
-										}
+                                        }
                                         input_points[i].insert(*it);
                                     }
                                 }
