@@ -114,6 +114,7 @@ endif()
 
 find_package(Boost)
 message(STATUS "Boost include files found in ${Boost_INCLUDE_DIRS}")
+find_package(LibXml2 REQUIRED)
 
 if(WASM_BUILD)
     set(CMAKE_FIND_ROOT_PATH "${CMAKE_FIND_ROOT_PATH_BACKUP}")
