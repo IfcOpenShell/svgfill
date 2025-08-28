@@ -9,6 +9,9 @@ cmake_policy(SET CMP0074 NEW) # find_package() uses <PackageName>_ROOT variables
 if (POLICY CMP0144)
 cmake_policy(SET CMP0144 NEW) # find_package() uses upper-case <PACKAGENAME>_ROOT variables.
 endif()
+if(POLICY CMP0167) # 3.30 find_package(Boost) to use BoostConfig instead of FindBoost.
+    cmake_policy(SET CMP0167 OLD)
+endif()
 
 include(GNUInstallDirs)
 
