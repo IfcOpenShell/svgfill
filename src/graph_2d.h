@@ -2,7 +2,7 @@
 #define GRAPH_2D_H
 
 #ifdef SVGFILL_DEBUG
-#include <nlohmann\json.hpp>
+#include <nlohmann/json.hpp>
 #endif
 
 template <typename Kernel>

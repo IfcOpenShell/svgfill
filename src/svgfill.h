@@ -23,7 +23,7 @@
 
 #ifdef IFC_SHARED_BUILD
 #ifdef _WIN32
-#ifdef libsvgfill_EXPORTS
+#ifdef svgfill_EXPORTS
 #define SVGFILL_API __declspec(dllexport)
 #else
 #define SVGFILL_API __declspec(dllimport)
@@ -44,7 +44,7 @@ namespace svgfill {
 	typedef std::array<double, 2> point_2;
 	typedef std::array<point_2, 2> line_segment_2;
 	typedef std::vector<point_2> loop_2;
-	struct polygon_2 {
+	struct SVGFILL_API polygon_2 {
 		loop_2 boundary;
 		std::vector<loop_2> inner_boundaries;
 		point_2 point_inside;
@@ -58,7 +58,7 @@ namespace svgfill {
 		EXACT_CONSTRUCTIONS
 	};
 
-	class abstract_arrangement {
+	class SVGFILL_API abstract_arrangement {
 	public:
 		virtual ~abstract_arrangement() {}
 		virtual bool operator()(double eps, const std::vector<svgfill::line_segment_2>& segments, std::function<void(float)>& progress) = 0;
@@ -69,7 +69,7 @@ namespace svgfill {
 		virtual size_t num_faces() = 0;
 	};
 
-	class context {
+	class SVGFILL_API context {
 	private:
 		solver solver_;
 		double eps_;
