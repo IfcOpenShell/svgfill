@@ -84,7 +84,7 @@ public:
         std::queue<Point_2> q;
 
         // seed BFS
-        predecessor[start] = start;  // mark start as “seen”
+        predecessor[start] = start;  // mark start as "seen"
         q.push(start);
 
         // BFS
@@ -92,7 +92,7 @@ public:
         while (!q.empty() && !found) {
             Point_2 u = q.front(); q.pop();
             for (auto& v : adj.at(u)) {
-                // if v has no predecessor yet, it’s unseen
+                // if v has no predecessor yet, it's unseen
                 if (!predecessor.count(v)) {
                     predecessor[v] = u;
                     q.push(v);
@@ -121,7 +121,7 @@ public:
         std::queue<Point_2> q;
 
         // seed BFS
-        predecessor[start] = start;  // mark start as “seen”
+        predecessor[start] = start;  // mark start as "seen"
         q.push(start);
 
         Point_2 used_goal;
@@ -131,7 +131,7 @@ public:
         while (!q.empty() && !found) {
             Point_2 u = q.front(); q.pop();
             for (auto& v : adj.at(u)) {
-                // if v has no predecessor yet, it’s unseen
+                // if v has no predecessor yet, it's unseen
                 if (!predecessor.count(v)) {
                     predecessor[v] = u;
                     q.push(v);
