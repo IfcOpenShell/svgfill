@@ -59,11 +59,43 @@ Polygon_2 convert_polygon(const CGAL::Polygon_2<K2>& poly) {
     return exact_poly;
 }
 
+void remove_close_points(Polygon_2& p, double eps = 1.e-2) {
+    std::vector<CGAL::Point_2<K>> ps;
+    ps.reserve(p.size());
+    auto I = p.begin();
+    auto J = I + 1;
+    for (;; ++J) {
+        bool last = false;
+        if (J == p.end()) {
+            J = p.begin();
+            last = true;
+        }
+        // std::cout << "d " << std::sqrt(CGAL::to_double(CGAL::squared_distance(*I, *J))) << std::endl;
+        if (CGAL::squared_distance(*I, *J) > (eps * eps)) {
+            ps.push_back(*J);
+            I = J;
+        }
+        if (last) {
+            break;
+        }
+    }
+    if (ps.size() >= 2 && CGAL::squared_distance(ps.front(), ps.back()) <= eps * eps) {
+        // Remove the last point if it is too close to the first point
+        ps.pop_back();
+    }
+    if (ps.size() != p.size()) {
+        // std::cerr << "Removed " << (p.size() - ps.size()) << " close points from polygon" << std::endl;
+        p = Polygon_2(ps.begin(), ps.end());
+    }
+}
+
 std::vector<Polygon_2> create_and_convert_offset_polygon(double offset_distance, const Polygon_2& polygon_) {
     auto polygon = polygon_;
     if (!polygon.is_counterclockwise_oriented()) {
         polygon.reverse_orientation();
     }
+
+    remove_close_points(polygon);
 
     // Create the offset polygons using Epick kernel
     // create_exterior_skeleton_and_offset_polygons_2()
@@ -89,11 +121,24 @@ std::vector<Polygon_2> create_and_convert_offset_polygon(double offset_distance,
 }
 
 template <typename T>
-const T& take_first_if_single_item(const std::vector<T>& vec) {
-    if (vec.size() == 1) {
+T take_first_if_single_item(const std::vector<T>& vec) {
+    if (vec.size() == 0) {
+		throw std::runtime_error("Expected at least one item");
+    }
+    if (true || vec.size() == 1) {
         return vec.front();
     }
     throw std::runtime_error("Expected a single item");
+}
+
+template <typename T>
+boost::optional<T> maybe_take_first_if_single_item(const std::vector<T>& vec) {
+    if (vec.size() == 0) {
+        return boost::none;
+    }
+    if (true || vec.size() == 1) {
+        return vec.front();
+    }
 }
 
 // Function to write polygons as line segments in OBJ format
@@ -161,36 +206,6 @@ void write_polygon_with_holes_to_svg(std::ostream& ofs, const Polygon_with_holes
     }
 }
 
-void remove_close_points(Polygon_2& p, double eps = 1.e-2) {
-    std::vector<CGAL::Point_2<K>> ps;
-    ps.reserve(p.size());
-    auto I = p.begin();
-    auto J = I + 1;
-    for (;; ++J) {
-        bool last = false;
-        if (J == p.end()) {
-            J = p.begin();
-            last = true;
-        }
-        // std::cout << "d " << std::sqrt(CGAL::to_double(CGAL::squared_distance(*I, *J))) << std::endl;
-        if (CGAL::squared_distance(*I, *J) > (eps * eps)) {
-            ps.push_back(*J);
-            I = J;
-        }
-        if (last) {
-            break;
-        }
-    }
-    if (ps.size() >= 2 && CGAL::squared_distance(ps.front(), ps.back()) <= eps * eps) {
-        // Remove the last point if it is too close to the first point
-        ps.pop_back();
-    }
-    if (ps.size() != p.size()) {
-        // std::cerr << "Removed " << (p.size() - ps.size()) << " close points from polygon" << std::endl;
-        p = Polygon_2(ps.begin(), ps.end());
-    }
-}
-
 Polygon_2 fuse_with_offset(const std::vector<Polygon_2>& polygons, double polygon_offset_distance) {
     // Find the outer perimeter using offset - union - negative offset
     std::vector<Polygon_2> offset_polygons;
@@ -231,30 +246,8 @@ Polygon_2 fuse_with_offset(const std::vector<Polygon_2>& polygons, double polygo
     // Perform Boolean union on the offset polygons
     std::vector<Polygon_with_holes_2> unioned_polygons;
     CGAL::join(offset_polygons.begin(), offset_polygons.end(), std::back_inserter(unioned_polygons));
-    Polygon_2 fused_removed_close_points;
-
-    {
-        std::vector<CGAL::Point_2<K>> ps;
-        auto& p = unioned_polygons.front().outer_boundary();
-        ps.reserve(p.size());
-        auto I = p.begin();
-        auto J = I + 1;
-        for (;; ++J) {
-            bool last = false;
-            if (J == p.end()) {
-                J = p.begin();
-                last = true;
-            }
-            if (CGAL::squared_distance(*I, *J) > (polygon_offset_distance * polygon_offset_distance)) {
-                ps.push_back(*J);
-                I = J;
-            }
-            if (last) {
-                break;
-            }
-        }
-        fused_removed_close_points = Polygon_2(ps.begin(), ps.end());
-    }
+    Polygon_2 fused_removed_close_points = unioned_polygons.front().outer_boundary();
+    remove_close_points(unioned_polygons.front().outer_boundary(), polygon_offset_distance);
 
     // Apply negative offset to get the outer perimeter polygon
     auto inner_offset = create_and_convert_offset_polygon(
@@ -263,7 +256,7 @@ Polygon_2 fuse_with_offset(const std::vector<Polygon_2>& polygons, double polygo
         fused_removed_close_points);
 
     if (inner_offset.size() != 1) {
-        throw std::runtime_error("Unexpected union outcome");
+        throw std::runtime_error("Unexpected union outcome - num outer perimiters: " + std::to_string(inner_offset.size()));
     }
 
     return inner_offset.front();
@@ -406,6 +399,30 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
             auto& poly1 = input_polygons[edge.first];
             auto& poly2 = input_polygons[edge.second];
 
+            // Populate eliminated_polies with small polygons
+			// This can happen over time when modifications are made to the polygons to solve overlaps
+            bool skip = false;
+            if (poly1.area() < 1.e-2) {
+                eliminated_polies.insert(edge.first);
+                skip = true;
+            }
+            if (poly2.area() < 1.e-2) {
+                eliminated_polies.insert(edge.second);
+                skip = true;
+            }
+			// Small slivers are also just eliminated
+            if (!maybe_take_first_if_single_item(create_and_convert_offset_polygon(-1.e-1, poly1))) {
+                eliminated_polies.insert(edge.first);
+                skip = true;
+            }
+            if (!maybe_take_first_if_single_item(create_and_convert_offset_polygon(-1.e-1, poly2))) {
+                eliminated_polies.insert(edge.second);
+                skip = true;
+			}
+            if (skip) {
+                continue;
+			}
+
             // Skip polygons that have a very high intersection over union
             // ratio, which indicates that they are very likely duplicates
             if (CGAL::do_intersect(poly1, poly2)) {
@@ -439,16 +456,46 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
             {
                 std::vector<Polygon_with_holes_2> result;
                 int assign_to;
+                // std::cerr << poly1.area() << " " << poly2.area() << std::endl;
+                // std::cerr.flush();
+
+                boost::optional<Polygon_2> mp;
+
                 if (poly1.area() > poly2.area()) {
-                    CGAL::difference(poly1, take_first_if_single_item(create_and_convert_offset_polygon(1.e-2, poly2)), std::back_inserter(result));
-                    poly2 = take_first_if_single_item(create_and_convert_offset_polygon(-1.e-2, poly2));
-                    assign_to = edge.first;
+                    if (maybe_take_first_if_single_item(create_and_convert_offset_polygon(+1.e-2, poly2)).is_initialized() &&
+                        (mp = maybe_take_first_if_single_item(create_and_convert_offset_polygon(-1.e-2, poly2))).is_initialized())
+                    {
+                        CGAL::difference(poly1, take_first_if_single_item(create_and_convert_offset_polygon(1.e-2, poly2)), std::back_inserter(result));
+                        poly2 = *mp;
+                        assign_to = edge.first;
+                    } else {
+						eliminated_polies.insert(edge.second);
+                        continue;
+                    }
                 } else {
-                    CGAL::difference(poly2, take_first_if_single_item(create_and_convert_offset_polygon(1.e-2, poly1)), std::back_inserter(result));
-                    poly1 = take_first_if_single_item(create_and_convert_offset_polygon(-1.e-2, poly1));
-                    assign_to = edge.second;
+                    if (maybe_take_first_if_single_item(create_and_convert_offset_polygon(+1.e-2, poly1)).is_initialized() &&
+                        (mp = maybe_take_first_if_single_item(create_and_convert_offset_polygon(-1.e-2, poly1))).is_initialized())
+                    {
+                        CGAL::difference(poly2, take_first_if_single_item(create_and_convert_offset_polygon(1.e-2, poly1)), std::back_inserter(result));
+                        poly1 = *mp;
+                        assign_to = edge.second;
+                    } else {
+                        eliminated_polies.insert(edge.first);
+                        continue;
+                    }
                 }
-                if (result.size() == 1) {
+
+				// Sort polygons by area to ensure the largest one is kept
+                std::sort(result.begin(), result.end(),
+                    [](const Polygon_with_holes_2& a, const Polygon_with_holes_2& b) {
+                        return a.outer_boundary().area() < b.outer_boundary().area();
+				});
+
+                if (result.size() > 1) {
+                    // std::cerr << "Warning multiple components after overlap elimination" << std::endl;
+                }
+
+                if (true || result.size() == 1) {
                     input_polygons[assign_to] = result.front().outer_boundary();
                     if (result.front().number_of_holes() == 0) {
 
