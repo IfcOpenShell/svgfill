@@ -300,7 +300,7 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
                 num_edges += 1;
             }
         }
-        polygon_offset_distance = total_edge_length / num_edges;
+        polygon_offset_distance = total_edge_length / num_edges / 2;
     }
 
     auto input_polygons__ = input_polygons_;
