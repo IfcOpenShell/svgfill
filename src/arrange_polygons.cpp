@@ -59,8 +59,9 @@ Polygon_2 convert_polygon(const CGAL::Polygon_2<K2>& poly) {
     return exact_poly;
 }
 
-void remove_close_points(Polygon_2& p, double eps = 1.e-2) {
-    std::vector<CGAL::Point_2<K>> ps;
+template <typename P>
+void remove_close_points(P& p, double eps = 1.e-2) {
+    std::vector<CGAL::Point_2<typename P::Traits::Kernel>> ps;
     ps.reserve(p.size());
     auto I = p.begin();
     auto J = I + 1;
@@ -85,7 +86,7 @@ void remove_close_points(Polygon_2& p, double eps = 1.e-2) {
     }
     if (ps.size() != p.size()) {
         // std::cerr << "Removed " << (p.size() - ps.size()) << " close points from polygon" << std::endl;
-        p = Polygon_2(ps.begin(), ps.end());
+        p = P(ps.begin(), ps.end());
     }
 }
 
@@ -112,7 +113,8 @@ std::vector<Polygon_2> create_and_convert_offset_polygon(double offset_distance,
 
     // Convert each offset polygon back to the Epeck kernel
     std::vector<Polygon_2> exact_offset_polygons;
-    for (const auto& inexact_poly_ptr : offset_polygons) {
+    for (auto& inexact_poly_ptr : offset_polygons) {
+        remove_close_points(*inexact_poly_ptr);
         Polygon_2 exact_poly = convert_polygon(*inexact_poly_ptr);
         exact_offset_polygons.push_back(exact_poly);
     }
