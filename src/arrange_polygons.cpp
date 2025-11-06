@@ -809,6 +809,7 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
     write_polygon_to_svg(svg, inner_offset.front());
 #endif
 
+    /*
     // there is non-insignificant chance that around the outer boundary, vertices are located in
     // between of the input polyhedra, but intermediate vertices result in triangles that will no longer
     // span between the two spaces with two edges and therefore cause the topological centre line
@@ -833,6 +834,7 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
     write_polygon_to_obj(obj, vi, true, inner_offset.front(), "joined_inset_cleaned");
     write_polygon_to_svg(svg, inner_offset.front());
 #endif
+    */
 
     // Subtract original polygons from outer perimeter
     std::vector<Polygon_with_holes_2> difference_result, difference_result_subdivided;
