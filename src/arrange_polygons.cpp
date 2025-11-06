@@ -143,6 +143,27 @@ boost::optional<T> maybe_take_first_if_single_item(const std::vector<T>& vec) {
     }
 }
 
+template <typename T>
+boost::optional<Polygon_2> subtract_retain_largest(const T& lhs, const T& rhs) {
+    std::vector<Polygon_with_holes_2> result;
+    boost::optional<Polygon_2> mp;
+
+    CGAL::difference(lhs, rhs, std::back_inserter(result));
+
+    std::sort(result.begin(), result.end(), [](const Polygon_with_holes_2& a, const Polygon_with_holes_2& b) {
+        return a.outer_boundary().area() < b.outer_boundary().area();
+    });
+
+    if (result.size() > 0) {
+        if (result.front().has_holes()) {
+            return boost::none;
+        }
+        return result.front().outer_boundary();
+    }
+
+    return boost::none;
+}
+
 // Function to write polygons as line segments in OBJ format
 void write_polygon_to_obj(std::ofstream& ofs, size_t& vertex_index, bool as_line, const Polygon_2& polygon, const std::string& name) {
     ofs << "o " << name << "\n";  // Object name
@@ -265,6 +286,11 @@ Polygon_2 fuse_with_offset(const std::vector<Polygon_2>& polygons, double polygo
 }
 
 void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::vector<Polygon_2>& output_polygons, double polygon_offset_distance = -1.) {
+    static const double OVERLAP_RESOLUTION_DISTANCE = 1.e-2;
+    // even larger amount of inset so that outer perimeter is safely within all input polygons even when overlap resolution is applied
+    // no, `1.e-2 + 1.e-5` creates issues with the outer perimeter, are there other tolerances in play?
+    static const double OUTER_PERIMITER_ADDITIONAL_INSET_AMOUNT = 1.e-5; 
+
     if (polygon_offset_distance < 0.) {
         double total_edge_length = 0.;
         size_t num_edges = 0;
@@ -398,26 +424,27 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
             }
             */
 
-            auto& poly1 = input_polygons[edge.first];
-            auto& poly2 = input_polygons[edge.second];
+            // these are pointers now, because otherwise swap would not work?
+            auto* poly1 = &input_polygons[edge.first];
+            auto* poly2 = &input_polygons[edge.second];
 
             // Populate eliminated_polies with small polygons
 			// This can happen over time when modifications are made to the polygons to solve overlaps
             bool skip = false;
-            if (poly1.area() < 1.e-2) {
+            if (poly1->area() < 1.e-2) {
                 eliminated_polies.insert(edge.first);
                 skip = true;
             }
-            if (poly2.area() < 1.e-2) {
+            if (poly2->area() < 1.e-2) {
                 eliminated_polies.insert(edge.second);
                 skip = true;
             }
 			// Small slivers are also just eliminated
-            if (!maybe_take_first_if_single_item(create_and_convert_offset_polygon(-1.e-1, poly1))) {
+            if (!maybe_take_first_if_single_item(create_and_convert_offset_polygon(-1.e-1, *poly1))) {
                 eliminated_polies.insert(edge.first);
                 skip = true;
             }
-            if (!maybe_take_first_if_single_item(create_and_convert_offset_polygon(-1.e-1, poly2))) {
+            if (!maybe_take_first_if_single_item(create_and_convert_offset_polygon(-1.e-1, *poly2))) {
                 eliminated_polies.insert(edge.second);
                 skip = true;
 			}
@@ -427,9 +454,9 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
 
             // Skip polygons that have a very high intersection over union
             // ratio, which indicates that they are very likely duplicates
-            if (CGAL::do_intersect(poly1, poly2)) {
+            if (CGAL::do_intersect(*poly1, *poly2)) {
                 std::vector<Polygon_with_holes_2> result;
-                CGAL::intersection(poly1, poly2, std::back_inserter(result));
+                CGAL::intersection(*poly1, *poly2, std::back_inserter(result));
                 typename K::FT intersection_area = 0;
                 for (auto& r : result) {
                     auto poly_area = r.outer_boundary().area();
@@ -439,7 +466,7 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
                     intersection_area += poly_area;
                 }
                 CGAL::Polygon_with_holes_2<K> poly12;
-                CGAL::join(poly1, poly2, poly12);
+                CGAL::join(*poly1, *poly2, poly12);
                 typename K::FT union_area = poly12.outer_boundary().area();
                 for (auto& h : poly12.holes()) {
                     union_area -= h.area();
@@ -451,74 +478,47 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
                 }
             }
 
-            if (!(poly1.is_simple() && poly2.is_simple())) {
+            if (!(poly1->is_simple() && poly2->is_simple())) {
                 continue;
             }
 
             {
                 std::vector<Polygon_with_holes_2> result;
-                int assign_to;
                 // std::cerr << poly1.area() << " " << poly2.area() << std::endl;
                 // std::cerr.flush();
 
-                boost::optional<Polygon_2> mp;
+                boost::optional<Polygon_2> mp1, mp2, mp3, mp4;
+                bool swap = false;
 
-                if (poly1.area() > poly2.area()) {
-                    if (maybe_take_first_if_single_item(create_and_convert_offset_polygon(+1.e-2, poly2)).is_initialized() &&
-                        (mp = maybe_take_first_if_single_item(create_and_convert_offset_polygon(-1.e-2, poly2))).is_initialized())
-                    {
-                        CGAL::difference(poly1, take_first_if_single_item(create_and_convert_offset_polygon(1.e-2, poly2)), std::back_inserter(result));
-                        poly2 = *mp;
-                        assign_to = edge.first;
-                    } else {
-						eliminated_polies.insert(edge.second);
-                        continue;
-                    }
-                } else {
-                    if (maybe_take_first_if_single_item(create_and_convert_offset_polygon(+1.e-2, poly1)).is_initialized() &&
-                        (mp = maybe_take_first_if_single_item(create_and_convert_offset_polygon(-1.e-2, poly1))).is_initialized())
-                    {
-                        CGAL::difference(poly2, take_first_if_single_item(create_and_convert_offset_polygon(1.e-2, poly1)), std::back_inserter(result));
-                        poly1 = *mp;
-                        assign_to = edge.second;
-                    } else {
-                        eliminated_polies.insert(edge.first);
-                        continue;
-                    }
+                swap = poly1->area() <= poly2->area();
+                if (swap) {
+                    std::swap(poly1, poly2);
                 }
 
-				// Sort polygons by area to ensure the largest one is kept
-                std::sort(result.begin(), result.end(),
-                    [](const Polygon_with_holes_2& a, const Polygon_with_holes_2& b) {
-                        return a.outer_boundary().area() < b.outer_boundary().area();
-				});
-
-                if (result.size() > 1) {
-                    // std::cerr << "Warning multiple components after overlap elimination" << std::endl;
-                }
-
-                if (true || result.size() == 1) {
-                    input_polygons[assign_to] = result.front().outer_boundary();
-                    if (result.front().number_of_holes() == 0) {
-
-                    } else {
-                        /*
-                        write_polygon_to_obj(obj, vi, true, result.front().outer_boundary(), "invalid_outer");
-                        size_t ii = 0;
-                        for (auto& i : result.front().holes()) {
-                            write_polygon_to_obj(obj, vi, true, i, "invalid_hole_" + std::to_string(ii + 1));
+                bool success = false;
+                if ((mp1 = maybe_take_first_if_single_item(create_and_convert_offset_polygon(OVERLAP_RESOLUTION_DISTANCE, *poly2)))) {
+                    if ((mp2 = subtract_retain_largest(*poly1, *mp1))) {
+                        if ((mp3 = maybe_take_first_if_single_item(create_and_convert_offset_polygon(OVERLAP_RESOLUTION_DISTANCE * 2, *mp2)))) {
+                            if ((mp4 = subtract_retain_largest(*poly2, *mp3))) {
+                                *poly1 = *mp2;
+                                *poly2 = *mp4;
+                                success = true;
+                            }
                         }
-                        obj << std::flush;
-                        */
-                        eliminated_polies.insert(assign_to == edge.first ? edge.second : edge.first);
                     }
-                } else {
-#ifdef SVGFILL_DEBUG
-                    write_polygon_to_obj(obj, vi, true, poly1, "err1");
-                    write_polygon_to_obj(obj, vi, true, poly2, "err2");
-                    obj << std::flush;
-#endif
-                    throw std::runtime_error("Unexpected union outcome");
+                }
+
+                /*
+                if (swap) {
+                    // swap back to retain original ordering
+                    // what's the point in swapping back here?
+                    std::swap(poly1, poly2);
+                }
+                */
+
+                if (!success) {
+                    eliminated_polies.insert(swap ? edge.first : edge.second);
+                    continue;
                 }
             }
         }
@@ -802,8 +802,8 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
         // Because polygon_offset is inexact, make sure our inset distance is slightly larger
         // std::nexttoward(-polygon_offset_distance, -std::numeric_limits<double>::infinity()),
 
-        // 1.e-8 even was too large and still resulted in slivers of triangle around the perimeter  
-        -polygon_offset_distance - 1.e-5,
+        // 1.e-8 even was too little and still resulted in slivers of triangle around the perimeter  
+        -polygon_offset_distance - OUTER_PERIMITER_ADDITIONAL_INSET_AMOUNT,
         fused_removed_close_points);
 
 #ifdef SVGFILL_DEBUG
