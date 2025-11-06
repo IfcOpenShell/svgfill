@@ -529,7 +529,7 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
         }
     }
 
-    if (false) {
+    if constexpr (false) {
         // solve overlap by means of union into components
         std::vector<std::vector<size_t>> adj(input_polygons.size());
         for (const auto& edge : overlaps) {
@@ -587,7 +587,12 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
         input_polygons = fused_polies;
     }
 
-    {
+    if constexpr (false) {
+        // NB we cannot do this anymore because it could revert the spacing between input polygons
+        // that touch in the corner.
+        // Now that overlaps/touches at corners are handled more locally only a small indent is produced
+        // which would be undone by means of an inset+offset.
+        // 
         // Inset-offset to remove tiny details
         for (auto& r : input_polygons) {
             auto ps = create_and_convert_offset_polygon(-polygon_offset_distance / 50., r);
