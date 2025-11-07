@@ -529,6 +529,7 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
         }
     }
 
+    /*
     if constexpr (false) {
         // solve overlap by means of union into components
         std::vector<std::vector<size_t>> adj(input_polygons.size());
@@ -605,6 +606,7 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
             }
         }
     }
+    */
 
 #ifdef SVGFILL_DEBUG
     for (auto it = input_polygons.begin(); it != input_polygons.end(); ++it) {
