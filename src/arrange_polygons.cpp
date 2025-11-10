@@ -776,6 +776,12 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
     std::vector<Polygon_with_holes_2> unioned_polygons;
     CGAL::join(offset_polygons.begin(), offset_polygons.end(), std::back_inserter(unioned_polygons));
 
+    if (unioned_polygons.size() > 1) {
+        // @todo this is currently one of the major limitations in the code that still can be eliminated
+        // by grouping the input polygons by their perimiter polygon in unioned_polygons
+        std::sort(unioned_polygons.begin(), unioned_polygons.end(), [](auto& p, auto& q) { return p.outer_boundary().area() > q.outer_boundary().area(); });
+    }
+
 #ifdef SVGFILL_DEBUG
     write_polygon_to_obj(obj, vi, true, unioned_polygons.front().outer_boundary(), "offset_poly_joined");
     write_polygon_to_svg(svg, unioned_polygons.front().outer_boundary());
