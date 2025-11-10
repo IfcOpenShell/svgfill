@@ -587,26 +587,29 @@ void arrange_cgal_polygons(const std::vector<Polygon_2>& input_polygons_, std::v
 
         input_polygons = fused_polies;
     }
+    */
 
-    if constexpr (false) {
-        // NB we cannot do this anymore because it could revert the spacing between input polygons
+    {
+        // [NB Nov 6] we cannot do this anymore because it could revert the spacing between input polygons
         // that touch in the corner.
         // Now that overlaps/touches at corners are handled more locally only a small indent is produced
         // which would be undone by means of an inset+offset.
         // 
-        // Inset-offset to remove tiny details
+        // [NB Nov 10] this is actually still necessary though, but we apply a much smaller distance now
+        // to keep the overlap eliminations in tact
+        // 
+        // Inset-offset to remove tiny details that may cause enourmous spikes in offsets
         for (auto& r : input_polygons) {
-            auto ps = create_and_convert_offset_polygon(-polygon_offset_distance / 50., r);
+            auto ps = create_and_convert_offset_polygon(-polygon_offset_distance / 10000., r);
             if (ps.size() == 1) {
                 auto r2 = ps.front();
-                ps = create_and_convert_offset_polygon(+polygon_offset_distance / 50., r2);
+                ps = create_and_convert_offset_polygon(+polygon_offset_distance / 10000., r2);
                 if (ps.size() == 1) {
                     r = ps.front();
                 }
             }
         }
     }
-    */
 
 #ifdef SVGFILL_DEBUG
     for (auto it = input_polygons.begin(); it != input_polygons.end(); ++it) {
