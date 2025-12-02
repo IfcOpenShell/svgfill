@@ -3,6 +3,8 @@ svgfill
 
 An application to fill areas bounded by unconnected lines in SVG.
 
+# Repository migrated to https://github.com/IfcOpenShell/IfcOpenShell/tree/HEAD/src/svgfill
+
 Dependencies
 ------------
 
